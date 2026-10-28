@@ -1,7 +1,9 @@
 # Deploy SmartCampus on Vercel
 
-The root `vercel.json` builds the Vite frontend and serves the Express API as a
-Vercel Function. The API and frontend share the same Vercel origin.
+The root `vercel.json` deploys the Vite frontend and Express API as two Vercel
+Services. Both are public on the same origin: the API is routed under `/api/*`
+and all other paths go to the frontend. The frontend calls the API through
+same-origin `/api` URLs, so no service binding is needed.
 
 ## Important platform limits
 
@@ -26,7 +28,7 @@ database name, username, and password from the database provider. Use TLS
 instances. If the provider uses an IP allowlist, configure it for the Vercel
 deployment or use a database connection option supported by that provider.
 
-Vercel initializes the database on the first API invocation in each function
+Vercel initializes the database on the first API invocation in each backend
 instance, then runs the existing migrations and Sequelize sync. Allow the first
 API request after a deploy to take longer than later requests.
 
@@ -37,9 +39,8 @@ API request after a deploy to take longer than later requests.
    Project** and import the repository.
 3. Keep the **Root Directory** as the repository root (`.`), not `frontend` or
    `backend`. The root `vercel.json` contains the combined frontend/API setup.
-4. Leave the build settings controlled by `vercel.json`. It installs the
-   backend and frontend dependencies, builds the frontend, and publishes
-   `frontend/dist`.
+4. Leave the build settings controlled by `vercel.json`. Vercel builds each
+   service from its own directory; the frontend publishes its `dist` output.
 5. Add the environment variables below before deploying, then select **Deploy**.
 
 ## 3. Configure project environment variables
@@ -96,8 +97,8 @@ After deployment:
 4. Test Google sign-in and password sign-in with test accounts.
 5. Review **Vercel → Project → Functions → Logs** if an API request fails.
 
-The API Function has a 60-second maximum duration configured to accommodate
-database initialization and external identity verification.
+The backend service has a 60-second maximum function duration configured to
+accommodate database initialization and external identity verification.
 
 ## 6. Before using course files in production
 

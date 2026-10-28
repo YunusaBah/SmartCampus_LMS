@@ -38,9 +38,10 @@ npm run seed
 
 ## Deploy on Vercel
 
-The root `vercel.json` builds the React frontend and routes `/api/*` to a Vercel
-Function running the Express API. See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for
-the setup steps and required environment variables.
+The root `vercel.json` deploys the React frontend and Express API as Vercel
+Services, routing `/api/*` to the backend and other paths to the frontend. See
+**[DEPLOYMENT.md](./DEPLOYMENT.md)** for setup steps and required environment
+variables.
 
 Vercel does not host this project's MySQL database. Keep or provision a managed
 MySQL database reachable from Vercel. The API currently stores uploaded files

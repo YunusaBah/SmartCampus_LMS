@@ -1,27 +1,7 @@
 require("../backend/src/config/env");
 
 const app = require("../backend/src/app");
-const { sequelize, connectDB } = require("../backend/src/config/db");
-require("../backend/src/models/associations");
-const runMigrations = require("../backend/src/utils/runMigrations");
-
-let databaseInitialization;
-
-const initializeDatabase = () => {
-    if (!databaseInitialization) {
-        databaseInitialization = (async () => {
-            await connectDB();
-            await runMigrations();
-            await sequelize.sync();
-            console.log("Database synced");
-        })().catch((error) => {
-            databaseInitialization = undefined;
-            throw error;
-        });
-    }
-
-    return databaseInitialization;
-};
+const initializeDatabase = require("../backend/src/utils/initializeDatabase");
 
 module.exports = async (req, res) => {
     try {
