@@ -8,7 +8,8 @@ import {
     FaCalendarAlt,
     FaBell,
     FaUsers,
-    FaQuestionCircle
+    FaQuestionCircle,
+    FaLifeRing
 } from "react-icons/fa";
 import { useAuth } from "../hooks/useAuth";
 
@@ -114,6 +115,7 @@ const Sidebar = ({ open, onClose }) => {
                         </>
                     )}
                     {link("/settings", "Settings", <FaCog />)}
+                    {link("/help-feedback", "Help & Feedback", <FaLifeRing />)}
                 </ul>
             </nav>
         </aside>

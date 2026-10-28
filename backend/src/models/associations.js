@@ -20,6 +20,10 @@ const Notification = require("./Notification");
 const CalendarEvent = require("./CalendarEvent");
 const Department = require("./Department");
 const Certificate = require("./Certificate");
+const Feedback = require("./Feedback");
+
+User.hasMany(Feedback, { foreignKey: "userId", as: "feedback" });
+Feedback.belongsTo(User, { foreignKey: "userId", as: "user" });
 
 User.hasMany(Enrollment, { foreignKey: "studentId", as: "enrollments" });
 Enrollment.belongsTo(User, { foreignKey: "studentId", as: "student" });
@@ -126,5 +130,6 @@ module.exports = {
     Notification,
     CalendarEvent,
     Department,
-    Certificate
+    Certificate,
+    Feedback
 };

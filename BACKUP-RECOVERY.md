@@ -5,9 +5,9 @@ Database backups and uploaded files are separate recovery concerns. A database d
 ## Production requirements
 
 - Enable automated encrypted backups and point-in-time recovery with the MySQL provider. Retain daily backups for at least 30 days and keep a separate copy outside the database provider account.
-- The application stores uploads on its local filesystem. In production, mount a durable persistent disk and set `UPLOADS_DIR` to its mount path. Render's free web service filesystem is ephemeral, and uploaded files may disappear after a restart or deploy. For multi-instance deployments, configure a shared durable object-storage adapter before scaling beyond one instance.
+- The application currently stores uploads on its local filesystem. Vercel function storage is temporary and isolated between instances, so uploaded course materials and submissions are not durable. Integrate and verify private object storage before production use; do not treat `/tmp` or `UPLOADS_DIR` on Vercel as persistent storage.
 - Restrict backup and object-storage access to the deployment team. Backups contain personal information, submissions, and grade history; do not put them in the repository or an unencrypted shared drive.
-- Configure `PASSWORD_RESET_DELIVERY_URL`, `PASSWORD_RESET_DELIVERY_SECRET` (at least 32 characters), and `PASSWORD_RESET_PAGE_URL` in Render. The delivery endpoint must authenticate `X-Reset-Delivery-Secret` and send the provided HTTPS link only to the supplied account email. The app does not send email itself.
+- Configure `PASSWORD_RESET_DELIVERY_URL`, `PASSWORD_RESET_DELIVERY_SECRET` (at least 32 characters), and `PASSWORD_RESET_PAGE_URL` in the Vercel project environment. The delivery endpoint must authenticate `X-Reset-Delivery-Secret` and send the provided HTTPS link only to the supplied account email. The app does not send email itself.
 
 ## Database backup
 

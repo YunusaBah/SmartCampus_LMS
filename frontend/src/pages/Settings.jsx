@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { FaArrowLeft, FaBookOpen, FaMoon, FaShieldAlt, FaSlidersH, FaSun, FaUserCircle } from "react-icons/fa";
+import { FaArrowLeft, FaBookOpen, FaLifeRing, FaMoon, FaShieldAlt, FaSlidersH, FaSun, FaUserCircle } from "react-icons/fa";
 import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import { profilePictureStorageKey, readProfilePicture } from "../utils/profilePicture";
@@ -448,6 +448,10 @@ const Settings = ({ theme, setTheme }) => {
                     <Link className="settings-option" to="/settings/preferences">
                         <span className="settings-section-icon"><FaSlidersH /></span>
                         <span><strong>Preferences</strong><small>Set your theme, text size, and motion preference.</small></span>
+                    </Link>
+                    <Link className="settings-option" to="/help-feedback">
+                        <span className="settings-section-icon"><FaLifeRing /></span>
+                        <span><strong>Help & Feedback</strong><small>Find role-specific guides or share feedback.</small></span>
                     </Link>
                 </nav>
             )}

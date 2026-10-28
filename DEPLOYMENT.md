@@ -1,286 +1,108 @@
-# Deployment Guide — Railway + Render + Netlify (Free Tier)
+# Deploy SmartCampus on Vercel
 
-Deploy **MySQL** on Railway, the **API** on Render, and the **React frontend** on Netlify.
+The root `vercel.json` builds the Vite frontend and serves the Express API as a
+Vercel Function. The API and frontend share the same Vercel origin.
 
-> **Important:** Render’s free tier has no persistent disk. Uploaded lesson/assignment files are stored on the server filesystem and **may be lost** when the service restarts or redeploys. Fine for demos and grading.
+## Important platform limits
 
-For production, use durable private object storage for uploads and configure password-reset delivery. Follow [`BACKUP-RECOVERY.md`](BACKUP-RECOVERY.md) for the required backup and restore procedure.
+- Vercel hosts the frontend and API, but it does not host this project's MySQL
+  database. Keep the existing managed MySQL database or provision one with a
+  database provider. It must accept secure connections from Vercel.
+- The backend currently saves uploaded materials and submissions to local disk.
+  Vercel function storage is temporary and can differ between invocations.
+  Attachments therefore are not persistent in this deployment until the backend
+  is migrated to durable object storage. Do not rely on Vercel's `/tmp` for
+  production files.
+- Vercel's function request-size limit is lower than the local upload limit.
+  Uploads are capped at 4 MB on Vercel. Use direct-to-object-storage uploads for
+  larger files after an object-storage adapter is integrated.
 
----
+## 1. Prepare the database
 
-## What you need before starting
+Use the existing MySQL database if it is reachable from Vercel. Do not delete
+or migrate the database just because the API is moving. Obtain its host, port,
+database name, username, and password from the database provider. Use TLS
+(`DB_SSL=true`) and a small connection pool (`DB_POOL_MAX=2`) for serverless
+instances. If the provider uses an IP allowlist, configure it for the Vercel
+deployment or use a database connection option supported by that provider.
 
-| Item | Example |
-|------|---------|
-| Railway account | [railway.app](https://railway.app) |
-| Render account | [render.com](https://render.com) |
-| Netlify account | [netlify.com](https://netlify.com) |
-| Google OAuth Web client ID | Create a Web application OAuth client in [Google Cloud Console](https://console.cloud.google.com/apis/credentials) |
-| Anthropic API key | For the AI assistant (optional but recommended) |
-| A long random string | For `JWT_SECRET` (e.g. 32+ random characters) |
+Vercel initializes the database on the first API invocation in each function
+instance, then runs the existing migrations and Sequelize sync. Allow the first
+API request after a deploy to take longer than later requests.
 
-Keep a text file handy to copy URLs and credentials as you go.
+## 2. Import the repository into Vercel
 
----
+1. Push the repository to GitHub if it is not already there.
+2. In the [Vercel dashboard](https://vercel.com/dashboard), select **Add New →
+   Project** and import the repository.
+3. Keep the **Root Directory** as the repository root (`.`), not `frontend` or
+   `backend`. The root `vercel.json` contains the combined frontend/API setup.
+4. Leave the build settings controlled by `vercel.json`. It installs the
+   backend and frontend dependencies, builds the frontend, and publishes
+   `frontend/dist`.
+5. Add the environment variables below before deploying, then select **Deploy**.
 
-## Step 1 — MySQL on Railway
+## 3. Configure project environment variables
 
-1. Log in to [Railway](https://railway.app) and create a **New Project**.
-2. Click **+ New** → **Database** → **MySQL**.
-3. Wait until the database is running, then open the MySQL service.
-4. Go to the **Connect** or **Variables** tab and note these values:
-
-| Railway variable | Maps to backend `DB_*` |
-|------------------|------------------------|
-| `MYSQLHOST` | `DB_HOST` |
-| `MYSQLPORT` | `DB_PORT` |
-| `MYSQLUSER` | `DB_USER` |
-| `MYSQLPASSWORD` | `DB_PASSWORD` |
-| `MYSQLDATABASE` | `DB_NAME` |
-
-5. Leave Railway open — you will paste these into Render in Step 2.
-
-**Railway billing note:** New accounts usually get trial credits. MySQL uses credits over time, so avoid leaving unused databases running after your demo.
-
----
-
-## Step 2 — Backend on Render
-
-Render needs your code from a Git repository. **You control when and what you push** — this guide does not require pushing from an AI tool.
-
-### Option A — Connect your existing GitHub repo (recommended)
-
-1. Make sure your project is on GitHub under **your** account (push commits yourself with your own messages).
-2. Go to [Render Dashboard](https://dashboard.render.com) → **New** → **Blueprint**.
-3. Connect GitHub and select your repository.
-4. Render reads `render.yaml` at the repo root and creates the `smartcampus-api` web service.
-5. In the service **Environment** tab, set these variables:
+Add these in **Project → Settings → Environment Variables**. Use **Production**
+for the live site; add **Preview** too if preview deployments should connect to
+the same services.
 
 | Variable | Value |
-|----------|-------|
-| `DB_HOST` | Railway `MYSQLHOST` |
-| `DB_PORT` | Railway `MYSQLPORT` |
-| `DB_USER` | Railway `MYSQLUSER` |
-| `DB_PASSWORD` | Railway `MYSQLPASSWORD` |
-| `DB_NAME` | Railway `MYSQLDATABASE` |
-| `DB_SSL` | `true` |
-| `JWT_SECRET` | Your long random secret |
-| `GOOGLE_CLIENT_ID` | Your Google OAuth Web client ID |
-| `CLIENT_URL` | Leave blank for now — set after Step 3 |
-| `PASSWORD_RESET_DELIVERY_URL` | HTTPS webhook URL for your trusted email/reset-link delivery service |
-| `PASSWORD_RESET_DELIVERY_SECRET` | Random secret of at least 32 characters shared with that delivery service |
-| `PASSWORD_RESET_PAGE_URL` | HTTPS frontend login URL that handles reset links |
-| `UPLOADS_DIR` | Path to a durable persistent disk mounted by the backend service |
-| `ANTHROPIC_API_KEY` | Your Anthropic key |
-
-`NODE_ENV=production` and `DB_SSL=true` are already set in `render.yaml`.
-
-6. Click **Manual Deploy** → **Deploy latest commit** (or wait for auto-deploy).
-7. When deploy finishes, open the service URL (e.g. `https://smartcampus-api.onrender.com`).
-8. Test: visit `https://YOUR-RENDER-URL/health` — you should see `{"status":"ok","database":"connected"}`.
-
-### Option B — New Web Service (without Blueprint)
-
-1. **New** → **Web Service** → connect repo.
-2. Settings:
-   - **Root Directory:** `backend`
-   - **Runtime:** Node
-   - **Build Command:** `npm install`
-   - **Start Command:** `npm start`
-   - **Health Check Path:** `/health`
-   - **Plan:** Free
-3. Add the same environment variables as in the table above.
-
-### Seed the database (optional demo accounts)
-
-From your PC, temporarily point `backend/.env` at Railway MySQL, then run:
-
-```powershell
-cd backend
-npm install
-npm run seed
-```
-
-This creates:
-
-| Role | Email | Password |
-|------|-------|----------|
-| Lecturer | lecturer@smartcampus.com | lecturer123 |
-| Student | student@smartcampus.com | student123 |
-
-Remove or change these passwords before a real production launch.
-
----
-
-## Step 3 — Frontend on Netlify
-
-The frontend lives in the `frontend` folder. `netlify.toml` is already configured for a Vite/React SPA.
-
-### Option A — Deploy without Git (Netlify CLI)
-
-Good if you do not want to connect GitHub to Netlify.
-
-1. Install the CLI once:
-
-```powershell
-npm install -g netlify-cli
-netlify login
-```
-
-2. Build with your Render API URL (replace the URL):
-
-```powershell
-cd frontend
-npm install
-$env:VITE_API_URL="https://YOUR-RENDER-URL.onrender.com"
-$env:VITE_GOOGLE_CLIENT_ID="YOUR-GOOGLE-OAUTH-WEB-CLIENT-ID"
-npm run build
-```
-
-3. Deploy:
-
-```powershell
-netlify deploy --prod --dir=dist
-```
-
-Follow the prompts to create a new site. Netlify prints your live URL (e.g. `https://smartcampus-demo.netlify.app`).
-
-### Option B — Netlify dashboard + Git
-
-1. [Netlify](https://app.netlify.com) → **Add new site** → **Import an existing project**.
-2. Connect GitHub and pick your repo.
-3. Build settings (Netlify reads `frontend/netlify.toml` if **Base directory** is `frontend`):
-
-| Setting | Value |
-|---------|-------|
-| Base directory | `frontend` |
-| Build command | `npm run build` |
-| Publish directory | `frontend/dist` |
-
-4. **Site settings** → **Environment variables** → add:
-
-```
-VITE_API_URL = https://YOUR-RENDER-URL.onrender.com
-VITE_GOOGLE_CLIENT_ID = YOUR-GOOGLE-OAUTH-WEB-CLIENT-ID
-```
-
-(No trailing slash for `VITE_API_URL`.) The Google client ID must match `GOOGLE_CLIENT_ID` on Render. In Google Cloud Console, add your Netlify site and `http://localhost:5173` as authorized JavaScript origins.
-
-To create the client ID, open Google Cloud Console → **APIs & Services** → **Credentials** → **Create credentials** → **OAuth client ID** → **Web application**. Add the production Netlify URL and `http://localhost:5173` to **Authorized JavaScript origins**, then copy the client ID (not a client secret) into both Render and Netlify. For local development, put `VITE_GOOGLE_CLIENT_ID` in the ignored `frontend/.env.development` file.
-
-5. **Deploy site**. Copy the Netlify URL.
-
-### Option C — Manual drag-and-drop
-
-1. Build locally with both `VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID` set.
-2. Go to [Netlify Drop](https://app.netlify.com/drop) and drag the `frontend/dist` folder onto the page.
-
----
-
-## Step 4 — Connect frontend and backend (CORS)
-
-1. In **Render** → your API service → **Environment**, set:
-
-```
-CLIENT_URL=https://smartcampus-utg-gambia.netlify.app
-```
-
-For multiple URLs (e.g. preview + production), use commas:
-
-```
-https://smartcampus-utg-gambia.netlify.app,https://deploy-preview-123--smartcampus.netlify.app
-```
-
-2. **Save** and **Manual Deploy** the backend so CORS and Google sign-in configuration take effect.
-3. Open your Netlify site, choose Student or Lecturer, and create an account with a verified Google account. Students must provide their full name, student ID, and phone number before joining a class. Legacy accounts can still sign in with their email and password or link the same Google account.
-4. Set `VITE_GOOGLE_CLIENT_ID` in Netlify and redeploy the frontend after setting the matching `GOOGLE_CLIENT_ID` in Render.
-
----
-
-## Step 5 — Final checks
-
-| Check | How |
-|-------|-----|
-| API readiness | `https://YOUR-RENDER-URL/health` → `{"status":"ok","database":"connected"}` |
-| API liveness | `https://YOUR-RENDER-URL/health/live` → `{"status":"ok"}` |
-| API root | `https://YOUR-RENDER-URL/` → welcome JSON |
-| Frontend loads | Netlify URL opens login page |
-| Login works | Use a legacy seed account or create a verified Google account |
-| Offline navigation | Open pages once while online; previously loaded API data is cached on that device |
-| CORS | Browser console has no blocked requests to Render |
-| Cold start | Render free tier sleeps after ~15 min idle; first request may take 30–60 seconds |
-
----
-
-## Environment variables reference
-
-### Backend (Render)
-
-See `backend/.env.example`. Production values go in the Render dashboard, not in committed files.
-
-### Frontend (Netlify)
-
-| Variable | Description |
-|----------|-------------|
-| `VITE_API_URL` | Render API base URL, no trailing slash, no `/api` suffix |
-
-Vite bakes this in at **build time**. After changing it on Netlify, trigger a **new deploy**.
-
----
-
-## Troubleshooting
-
-### Database connection failed on Render
-
-- Confirm all five `DB_*` values match Railway exactly.
-- Set `DB_SSL=true` for Railway MySQL.
-- In Railway, ensure the MySQL service is running.
-
-### CORS / “Network Error” in the browser
-
-- First open `https://YOUR-RENDER-URL/health`. The SmartCampus Node API must return `{"status":"ok","database":"connected"}`. A 503 indicates the API cannot reach its database. If it returns a 404, a different server response, or a `uvicorn` server header, the URL is not serving this project's backend. In Render, deploy this repository's root `render.yaml` Blueprint, or create a Node Web Service with root directory `backend`, build command `npm install`, and start command `npm start`.
-- `CLIENT_URL` on Render should exactly match your Netlify URL (including `https://`, no trailing slash). The current production Netlify URL is allowed by default; set this variable for additional URLs or previews.
-- Redeploy the backend after changing `CLIENT_URL`.
-- If the correct backend is deployed at a different URL, update Netlify's `VITE_API_URL` to that API origin and redeploy the frontend.
-
-### Frontend still calls localhost
-
-- `VITE_API_URL` should be the Render API origin (`https://smartcampus-api.onrender.com`), with no trailing slash or `/api` suffix. It defaults to that production origin if unset. Set the variable and redeploy after changing it.
-
-### 404 on page refresh (e.g. `/dashboard`)
-
-- `frontend/netlify.toml` includes SPA redirects. Ensure Netlify base directory is `frontend`.
-
-### Uploads disappear
-
-- Expected on Render free tier. Files are not stored permanently.
-
-### Render service won’t start
-
-- Check **Logs** in the Render dashboard.
-- Verify `npm start` runs `node src/server.js` and the service listens on `PORT` (already handled in code).
-
----
-
-## Local `.env` files (do not commit)
-
-```powershell
-# backend/.env — local dev or temporary Railway access for seeding
-copy backend\.env.example backend\.env
-
-# frontend/.env.development — defaults to http://localhost:5000
-```
-
-`.env` files are in `.gitignore`. Never commit secrets.
-
----
-
-## Deployment order summary
-
-```
-1. Railway  → create MySQL, copy credentials
-2. Render   → deploy backend with DB_* env vars
-3. Netlify  → deploy frontend with VITE_API_URL
-4. Render   → set CLIENT_URL to Netlify URL, redeploy
-5. Test     → login, courses, API health
-```
+|---|---|
+| `DB_HOST` | Managed MySQL host |
+| `DB_PORT` | Managed MySQL port, usually `3306` |
+| `DB_NAME` | MySQL database name |
+| `DB_USER` | MySQL user |
+| `DB_PASSWORD` | MySQL password |
+| `DB_SSL` | `true` when the provider requires TLS |
+| `DB_POOL_MAX` | `2` |
+| `JWT_SECRET` | Random secret of at least 32 characters |
+| `GOOGLE_CLIENT_ID` | Google OAuth Web client ID |
+| `VITE_GOOGLE_CLIENT_ID` | Same public Google OAuth Web client ID for the browser sign-in button |
+| `CLIENT_URL` | Exact production origin, e.g. `https://your-project.vercel.app` |
+| `ANTHROPIC_API_KEY` | Optional; only needed for the AI assistant |
+| `PASSWORD_RESET_DELIVERY_URL` | Optional HTTPS password-reset delivery endpoint |
+| `PASSWORD_RESET_DELIVERY_SECRET` | Optional shared secret, at least 32 characters |
+| `PASSWORD_RESET_PAGE_URL` | Optional HTTPS login page URL for reset links |
+
+`PORT` is managed by Vercel and is not required. Do not set `VITE_API_URL` for
+this same-origin deployment. Redeploy after changing frontend environment
+variables because Vite embeds them at build time.
+
+Do not put `.env` files, database credentials, JWT secrets, or API keys in Git.
+`VITE_*` values are included in browser code and must never contain secrets.
+
+## 4. Finish Google sign-in configuration
+
+In Google Cloud Console, open the OAuth Web client and add the Vercel site's
+origin to **Authorized JavaScript origins** (for example,
+`https://your-project.vercel.app`). Add any custom domain you use as a separate
+origin. The origin must not include a path or trailing slash.
+
+The `GOOGLE_CLIENT_ID` backend value and `VITE_GOOGLE_CLIENT_ID` frontend value
+must match. Redeploy after setting or changing Vercel environment variables.
+
+## 5. Verify the deployment
+
+After deployment:
+
+1. Open `https://your-project.vercel.app/`; the SmartCampus login page should
+   load.
+2. Open `https://your-project.vercel.app/api/health/live`; the API should return
+   `{"status":"ok"}`.
+3. Open `https://your-project.vercel.app/api/health`; it should return
+   `{"status":"ok","database":"connected"}`.
+4. Test Google sign-in and password sign-in with test accounts.
+5. Review **Vercel → Project → Functions → Logs** if an API request fails.
+
+The API Function has a 60-second maximum duration configured to accommodate
+database initialization and external identity verification.
+
+## 6. Before using course files in production
+
+The current upload/download code uses local filesystem paths. Configure a
+private, durable object store and migrate the backend upload, download, and
+delete paths to use it before relying on course materials, assignment files, or
+student submissions. Merely creating a Vercel Blob store or setting a storage
+environment variable does not migrate the existing filesystem implementation.

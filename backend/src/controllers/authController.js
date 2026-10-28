@@ -103,10 +103,28 @@ const verifyGoogleCredential = async (credential) => {
         return { error: "Google sign-in is not configured", status: 503 };
     }
 
-    const response = await fetch(
-        `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`,
-        { signal: AbortSignal.timeout(10000) }
-    );
+    let response;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            response = await fetch(
+                `https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(credential)}`,
+                { signal: AbortSignal.timeout(10000) }
+            );
+            break;
+        } catch (error) {
+            const transientNetworkError = error.name === "TimeoutError" ||
+                error.name === "AbortError" || error instanceof TypeError;
+            if (!transientNetworkError) throw error;
+            if (attempt === 1) {
+                console.error("Google credential verification could not reach Google:", error);
+                return {
+                    error: "Google sign-in verification timed out. Check the backend's internet connection and try again.",
+                    status: 503
+                };
+            }
+        }
+    }
+
     if (!response.ok) {
         return { error: "Google sign-in could not verify your account", status: 401 };
     }

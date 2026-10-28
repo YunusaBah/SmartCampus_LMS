@@ -16,6 +16,7 @@ const auditRoutes = require("./Routes/auditRoutes");
 const dashboardRoutes = require("./Routes/dashboardRoutes");
 const aiRoutes = require("./Routes/aiRoutes");
 const lmsRoutes = require("./Routes/lmsRoutes");
+const feedbackRoutes = require("./Routes/feedbackRoutes");
 const { sequelize } = require("./config/db");
 
 const app = express();
@@ -24,8 +25,7 @@ app.set("trust proxy", 1);
 
 const allowedOrigins = [
     "http://localhost:5173",
-    "https://charming-cucurucho-472417.netlify.app",
-    "https://smartcampus-utg-gambia.netlify.app",
+    process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "",
     ...(process.env.CLIENT_URL || "").split(",")
 ]
     .map((origin) => origin.trim())
@@ -65,11 +65,11 @@ app.use((req, res, next) => {
 app.use(morgan("dev"));
 app.use(limiter);
 
-app.get("/health/live", (req, res) => {
+app.get(["/health/live", "/api/health/live"], (req, res) => {
     res.json({ status: "ok" });
 });
 
-app.get("/health", async (req, res) => {
+app.get(["/health", "/api/health"], async (req, res) => {
     try {
         await sequelize.authenticate();
         res.json({ status: "ok", database: "connected" });
@@ -95,6 +95,7 @@ app.use("/api/quizzes", quizRoutes);
 app.use("/api/assignments", assignmentRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/ai", aiRoutes);
+app.use("/api/feedback", feedbackRoutes);
 app.use("/api", lmsRoutes);
 
 app.use((req, res) => {
@@ -109,7 +110,11 @@ app.use((err, req, res, next) => {
     }
 
     if (err.code === "LIMIT_FILE_SIZE") {
-        return res.status(400).json({ message: "File too large (max 10MB)" });
+        return res.status(400).json({
+            message: process.env.VERCEL
+                ? "File too large (max 4MB on Vercel)"
+                : "File too large (max 10MB)"
+        });
     }
 
     if (err.type === "entity.too.large") {

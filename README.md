@@ -36,26 +36,16 @@ npm run seed
 
 ---
 
-## Deploy (free tier)
+## Deploy on Vercel
 
-| Part | Service |
-|------|---------|
-| MySQL | [Railway](https://railway.app) |
-| Backend | [Render](https://render.com) |
-| Frontend | [Netlify](https://netlify.com) |
+The root `vercel.json` builds the React frontend and routes `/api/*` to a Vercel
+Function running the Express API. See **[DEPLOYMENT.md](./DEPLOYMENT.md)** for
+the setup steps and required environment variables.
 
-**Full step-by-step guide:** see **[DEPLOYMENT.md](./DEPLOYMENT.md)**.
-
-Quick overview:
-
-1. **Railway** — create a MySQL database and copy `MYSQLHOST`, `MYSQLPORT`, `MYSQLUSER`, `MYSQLPASSWORD`, `MYSQLDATABASE`.
-2. **Render** — deploy `backend` using `render.yaml`; set `DB_*`, `JWT_SECRET`, `GOOGLE_CLIENT_ID`, `ANTHROPIC_API_KEY`.
-3. **Netlify** — deploy `frontend` (uses `frontend/netlify.toml`); set `VITE_API_URL` and `VITE_GOOGLE_CLIENT_ID`.
-4. **Render** — set `CLIENT_URL` to your Netlify URL and redeploy for CORS.
-
-> Render free tier has no persistent disk — uploaded files may be lost on restart. Fine for demos.
-
-Frontend can be deployed with the Netlify CLI (no Git required). See DEPLOYMENT.md for details.
+Vercel does not host this project's MySQL database. Keep or provision a managed
+MySQL database reachable from Vercel. The API currently stores uploaded files
+on local disk; Vercel's filesystem is temporary, so persistent file storage
+must be integrated before relying on course-material and submission uploads.
 
 ---
 
@@ -72,4 +62,5 @@ See `backend/.env.example`.
 | `VITE_API_URL` | Backend base URL (no `/api` suffix) |
 | `VITE_GOOGLE_CLIENT_ID` | Google OAuth Web client ID for sign-in |
 
-Local dev uses `frontend/.env.development` (`http://localhost:5000`). Production value is set in the Netlify dashboard or when building locally for CLI deploy.
+Local dev uses `frontend/.env.development` (`http://localhost:5000`). On Vercel,
+leave `VITE_API_URL` unset so the frontend uses its same-origin `/api` routes.

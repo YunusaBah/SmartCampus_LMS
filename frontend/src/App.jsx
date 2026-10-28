@@ -17,6 +17,7 @@ import Grades from "./pages/Grades";
 import JoinClass from "./pages/JoinClass";
 import Students from "./pages/Students";
 import Settings from "./pages/Settings";
+import HelpFeedback from "./pages/HelpFeedback";
 import Calendar from "./pages/Calendar";
 import Announcements from "./pages/Announcements";
 import Messages from "./pages/Messages";
@@ -165,6 +166,11 @@ function App() {
                             </RoleRoute>
                         } />
                         <Route path="settings" element={<Settings theme={theme} setTheme={setTheme} />} />
+                        <Route path="help-feedback" element={
+                            <RoleRoute roles={["student", "lecturer"]}>
+                                <HelpFeedback />
+                            </RoleRoute>
+                        } />
                         <Route path="settings/profile" element={<Settings theme={theme} setTheme={setTheme} />} />
                         <Route path="settings/profile/name" element={<Settings theme={theme} setTheme={setTheme} />} />
                         <Route path="settings/profile/email" element={<Settings theme={theme} setTheme={setTheme} />} />

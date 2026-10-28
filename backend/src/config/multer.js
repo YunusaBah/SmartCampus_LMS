@@ -38,7 +38,7 @@ const allowedTypes = new Map([
 
 module.exports = multer({
     storage,
-    limits: { fileSize: 10 * 1024 * 1024 },
+    limits: { fileSize: process.env.VERCEL ? 4 * 1024 * 1024 : 10 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const allowedMimeTypes = allowedTypes.get(path.extname(file.originalname).toLowerCase());
         if (!allowedMimeTypes || !allowedMimeTypes.includes(file.mimetype)) {

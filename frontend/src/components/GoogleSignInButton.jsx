@@ -67,7 +67,8 @@ const GoogleSignInButton = ({ text = "signin_with", onCredential, onError }) => 
 
     if (!clientId) {
         return <p className="google-signin-notice" role="status">
-            Google sign-in is unavailable. Contact support.
+            Google sign-in isn&apos;t configured for this site yet. You can use your email and password, or ask
+            the site administrator to add the Google OAuth client ID and redeploy.
         </p>;
     }
 

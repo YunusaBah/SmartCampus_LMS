@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from "react-router-dom";
 import API from "../services/api";
 import Register from "./Register";
 import GoogleSignInButton from "../components/GoogleSignInButton";
+import SmartCampusWalkthrough from "../components/SmartCampusWalkthrough";
 import { readDefaultPage } from "../utils/settingsPreferences";
 
 const readResetTokenFromHash = () =>
@@ -171,6 +172,9 @@ const Login = () => {
                         <p className="login-eyebrow">THE UNIVERSITY OF THE GAMBIA</p>
                     </div>
                     <h1>SmartCampus</h1>
+                    <p className="login-welcome-copy">
+                        Courses, learning materials, assignments, and campus communication — all in one place.
+                    </p>
                     {successMsg && <p className="login-success" role="status">{successMsg}</p>}
                     {registrationMessage && <p className="login-success" role="status">{registrationMessage}</p>}
                     <div className="login-actions">
@@ -183,20 +187,7 @@ const Login = () => {
                     </div>
                 </section>
 
-                <aside className="login-project-notes">
-                    <p className="login-eyebrow">WHY SMARTCAMPUS</p>
-                    <h2>A connected campus learning platform</h2>
-                    <p>
-                        SmartCampus brings teaching, learning, and course communication into one learning
-                        management system for University of The Gambia students and lecturers.
-                    </p>
-                    <ul>
-                        <li>Organize courses, share learning materials and links, and publish announcements.</li>
-                        <li>Create assignments and quizzes, collect submissions, and manage grading and feedback.</li>
-                        <li>Track deadlines, course activity, learning progress, and certificates.</li>
-                        <li>Support student collaboration and lecturer communication in each course.</li>
-                    </ul>
-                </aside>
+                <SmartCampusWalkthrough />
             </div>
 
             <footer className="login-about">
