@@ -23,8 +23,7 @@ const loadDatabaseConfig = (environment) => {
     Object.assign(process.env, environment);
     delete require.cache[require.resolve("../src/config/db")];
     const config = require("../src/config/db");
-    assert.equal(typeof config.define, "function");
-    assert.equal(config.sequelize, config);
+    assert.equal(typeof config.sequelize.define, "function");
     assert.equal(typeof config.connectDB, "function");
     sequelizeInstances.push(config.sequelize);
     return config.sequelize;

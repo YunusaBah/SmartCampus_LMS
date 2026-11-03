@@ -1,5 +1,4 @@
-const { sequelize } = require("../config/db");
-const connectDB = sequelize.connectDB;
+const { sequelize, connectDB } = require("../config/db");
 require("../models/associations");
 const runMigrations = require("./runMigrations");
 const runChatSecurity = require("./chatSecurity");
