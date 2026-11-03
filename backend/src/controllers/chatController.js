@@ -13,8 +13,12 @@ const ChatReadState = require("../models/ChatReadState");
 const ChatSavedMessage = require("../models/ChatSavedMessage");
 const ChatHiddenMessage = require("../models/ChatHiddenMessage");
 const chatRealtime = require("../utils/chatRealtime");
+const objectStorage = require("../utils/objectStorage");
 
-const usernamePattern = /^[a-z0-9_]{3,20}$/;
+const developerEmail = "bahy1878@gmail.com";
+const developerUsername = "Yunusa Bah";
+const developerBio = "the brain behind the smartcampus";
+const developerAvatar = "/developer-profile.jpg";
 const messageTypes = new Set(["text", "emoji", "gif", "sticker", "voice", "image", "file", "contact"]);
 const profileFields = ["id", "username", "fullName", "avatarUrl", "about"];
 const contactVisibilityFields = ["phoneVisibility", "emailVisibility", "matNumberVisibility"];
@@ -22,6 +26,72 @@ const contactVisibilityOptions = new Set(["everyone", "course", "private_contact
 const allowedAudioTypes = new Set(["audio/webm", "audio/mp4", "audio/ogg", "audio/mpeg", "audio/wav"]);
 const allowedImageTypes = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const reactionEmojis = new Set(["👍", "❤️", "😂", "😮", "😢", "🙏"]);
+
+const normalizeChatUsername = (value) => {
+    if (typeof value !== "string") return null;
+    const username = value.trim();
+    if (!username || username.length > 20 || /[\u0000-\u001f\u007f]/.test(username)) return null;
+    return username;
+};
+
+const usernameOwner = (username) => ChatProfile.findOne({
+    where: sequelize.where(sequelize.fn("LOWER", sequelize.col("username")), username.toLowerCase()),
+    attributes: ["userId"]
+});
+
+const isDeveloperAccount = (user) => typeof user?.email === "string" &&
+    user.email.trim().toLowerCase() === developerEmail;
+
+const ensureDeveloperProfile = async (user) => {
+    if (!isDeveloperAccount(user)) return null;
+    const existingOwner = await usernameOwner(developerUsername);
+    if (existingOwner && Number(existingOwner.userId) !== Number(user.id)) {
+        throw new Error(`The reserved SmartCampus developer username is already assigned to user ${existingOwner.userId}.`);
+    }
+
+    const [profile, created] = await ChatProfile.findOrCreate({
+        where: { userId: user.id },
+        defaults: {
+            userId: user.id,
+            username: developerUsername,
+            fullName: "Yunusa Bah",
+            avatarUrl: developerAvatar,
+            about: developerBio,
+            phoneVisibility: "private_contacts",
+            emailVisibility: "private_contacts",
+            matNumberVisibility: "private_contacts"
+        }
+    });
+    const shouldSetPrivateDefaults = created || profile.username.toLowerCase() !== developerUsername.toLowerCase();
+    const updates = {
+        username: developerUsername,
+        fullName: "Yunusa Bah",
+        avatarUrl: developerAvatar,
+        about: developerBio
+    };
+    if (shouldSetPrivateDefaults) {
+        Object.assign(updates, {
+            phoneVisibility: "private_contacts",
+            emailVisibility: "private_contacts",
+            matNumberVisibility: "private_contacts"
+        });
+    }
+    if (Object.entries(updates).some(([field, value]) => profile[field] !== value)) {
+        Object.assign(profile, updates);
+        await profile.save();
+    }
+    return profile;
+};
+
+const getDeveloperProfile = async (viewerUserId) => {
+    const user = await User.findOne({
+        where: sequelize.where(sequelize.fn("LOWER", sequelize.col("email")), developerEmail),
+        attributes: ["id", "email", "fullName"]
+    });
+    if (!user) return null;
+    const profile = await ensureDeveloperProfile(user);
+    return Number(user.id) === Number(viewerUserId) ? null : profile;
+};
 
 const summarizeReactions = (reactions = [], profileId) => {
     const summaries = new Map();
@@ -121,11 +191,10 @@ const canAccessMessage = async (message, profile) => {
 
 exports.getMe = async (req, res, next) => {
     try {
-        const [profile, user] = await Promise.all([
-            profileFor(req.user.id),
-            User.findByPk(req.user.id, { attributes: ["fullName"] })
-        ]);
+        const user = await User.findByPk(req.user.id, { attributes: ["id", "fullName", "email"] });
         if (!user) return res.status(404).json({ message: "Account not found" });
+        await ensureDeveloperProfile(user);
+        const profile = await profileFor(req.user.id);
         if (!profile) {
             return res.json({
                 profile: null,
@@ -246,12 +315,12 @@ exports.getMe = async (req, res, next) => {
 
 exports.saveProfile = async (req, res, next) => {
     try {
-        const username = typeof req.body.username === "string" ? req.body.username.trim().toLowerCase() : "";
+        const username = normalizeChatUsername(req.body.username);
         const avatarUrl = req.body.avatarUrl == null || req.body.avatarUrl === "" ? null : req.body.avatarUrl;
         const about = typeof req.body.about === "string" ? req.body.about.trim() : "";
-        if (!usernamePattern.test(username)) {
+        if (!username) {
             return res.status(400).json({
-                message: "Username must be 3–20 characters using lowercase letters, numbers, or underscores."
+                message: "Username must contain 1–20 characters and cannot include control characters."
             });
         }
         if (about.length > 200) {
@@ -268,8 +337,15 @@ exports.saveProfile = async (req, res, next) => {
             }
         }
 
-        const user = await User.findByPk(req.user.id, { attributes: ["id", "fullName"] });
+        const user = await User.findByPk(req.user.id, { attributes: ["id", "fullName", "email"] });
         if (!user) return res.status(404).json({ message: "Account not found" });
+        if (username.toLowerCase() === developerUsername.toLowerCase() && !isDeveloperAccount(user)) {
+            return res.status(409).json({ message: "That chat username is reserved for the SmartCampus developer." });
+        }
+        const existingUsername = await usernameOwner(username);
+        if (existingUsername && Number(existingUsername.userId) !== Number(req.user.id)) {
+            return res.status(409).json({ message: "That chat username is already taken." });
+        }
         const [profile, created] = await ChatProfile.findOrCreate({
             where: { userId: req.user.id },
             defaults: {
@@ -292,6 +368,27 @@ exports.saveProfile = async (req, res, next) => {
         if (error.name === "SequelizeUniqueConstraintError") {
             return res.status(409).json({ message: "That chat username is already taken." });
         }
+        return next(error);
+    }
+};
+
+exports.checkUsernameAvailability = async (req, res, next) => {
+    try {
+        const username = normalizeChatUsername(req.query.username);
+        if (!username) {
+            return res.status(400).json({
+                message: "Username must contain 1–20 characters and cannot include control characters."
+            });
+        }
+        if (username.toLowerCase() === developerUsername.toLowerCase()) {
+            const user = await User.findByPk(req.user.id, { attributes: ["email"] });
+            if (!isDeveloperAccount(user)) return res.json({ available: false });
+        }
+        const owner = await usernameOwner(username);
+        return res.json({
+            available: !owner || Number(owner.userId) === Number(req.user.id)
+        });
+    } catch (error) {
         return next(error);
     }
 };
@@ -325,9 +422,9 @@ exports.searchProfiles = async (req, res, next) => {
     try {
         const profile = await profileFor(req.user.id);
         if (!profile) return profileMissing(res);
-        const username = String(req.query.username || "").trim().replace(/^@/, "").toLowerCase();
+        const username = normalizeChatUsername(String(req.query.username || "").trim().replace(/^@/, ""));
         const courseId = req.query.courseId == null ? null : Number(req.query.courseId);
-        if (!usernamePattern.test(username) && !/^[a-z0-9_]{1,20}$/.test(username)) {
+        if (!username) {
             return res.json(courseId ? { profiles: [] } : { profile: null });
         }
         if (courseId !== null) {
@@ -341,7 +438,7 @@ exports.searchProfiles = async (req, res, next) => {
             const matches = members.length ? await ChatProfile.findAll({
                 where: {
                     userId: { [Op.in]: members.map((member) => member.studentId) },
-                    username: { [Op.iLike]: `${username}%` }
+                    username: { [Op.iLike]: `${username.replace(/[\\%_]/g, "\\$&")}%` }
                 },
                 attributes: profileFields,
                 limit: 5,
@@ -349,9 +446,8 @@ exports.searchProfiles = async (req, res, next) => {
             }) : [];
             return res.json({ profiles: matches.map(safeProfile) });
         }
-        if (!usernamePattern.test(username)) return res.json({ profile: null });
         const match = await ChatProfile.findOne({
-            where: { username },
+            where: sequelize.where(sequelize.fn("LOWER", sequelize.col("username")), username.toLowerCase()),
             attributes: [...profileFields, "userId"]
         });
         if (!match || match.id === profile.id) {
@@ -368,7 +464,11 @@ exports.listCoursemates = async (req, res, next) => {
         const ownProfile = await profileFor(req.user.id);
         if (!ownProfile) return profileMissing(res);
         let courseIds = await enrolledCourseIds(req.user.id);
-        if (!courseIds.length) return res.json({ profiles: [] });
+        const isDefaultList = req.query.courseId == null && !req.query.withProfileId;
+        const featuredProfile = isDefaultList ? await getDeveloperProfile(req.user.id) : null;
+        if (!courseIds.length) {
+            return res.json({ profiles: [], featuredProfile: safeProfile(featuredProfile) });
+        }
         if (req.query.courseId != null) {
             const courseId = Number(req.query.courseId);
             if (!Number.isSafeInteger(courseId) || !courseIds.some((id) => Number(id) === courseId)) {
@@ -391,7 +491,9 @@ exports.listCoursemates = async (req, res, next) => {
                 recipientCourseIds.some((recipientCourseId) => Number(recipientCourseId) === Number(courseId))
             );
         }
-        if (!courseIds.length) return res.json({ profiles: [] });
+        if (!courseIds.length) {
+            return res.json({ profiles: [], featuredProfile: safeProfile(featuredProfile) });
+        }
         const enrollments = await Enrollment.findAll({
             where: {
                 courseId: { [Op.in]: courseIds },
@@ -405,7 +507,10 @@ exports.listCoursemates = async (req, res, next) => {
             attributes: profileFields,
             order: [["username", "ASC"]]
         }) : [];
-        return res.json({ profiles: profiles.map(safeProfile) });
+        return res.json({
+            profiles: profiles.filter((item) => item.id !== featuredProfile?.id).map(safeProfile),
+            featuredProfile: safeProfile(featuredProfile)
+        });
     } catch (error) {
         return next(error);
     }
@@ -621,41 +726,66 @@ exports.listPrivateMessages = async (req, res, next) => {
 };
 
 exports.sendMessage = async (req, res, next) => {
+    let uploadedStorageKey;
+    const cleanupStagedUpload = async () => {
+        if (!uploadedStorageKey) return;
+        try {
+            await objectStorage.remove(uploadedStorageKey);
+            uploadedStorageKey = null;
+        } catch (error) {
+            console.error("Failed to remove rejected chat attachment:", error.message);
+        }
+    };
+    const reject = async (status, message) => {
+        await cleanupStagedUpload();
+        return res.status(status).json({ message });
+    };
     try {
+        if (!req.file && req.body.fileStorageKey) {
+            if (!objectStorage.validateStorageKey(req.body.fileStorageKey, req.user.id)) {
+                return res.status(400).json({ message: "The uploaded attachment is invalid." });
+            }
+            uploadedStorageKey = req.body.fileStorageKey;
+            const uploaded = await objectStorage.resolveChatUpload(req.body, req.user.id);
+            req.file = uploaded.file;
+        }
         const profile = await profileFor(req.user.id);
-        if (!profile) return profileMissing(res);
+        if (!profile) {
+            await cleanupStagedUpload();
+            return profileMissing(res);
+        }
         const courseId = req.body.courseId == null ? null : Number(req.body.courseId);
         const receiverProfileId = req.body.receiverProfileId || null;
         let content = typeof req.body.content === "string" ? req.body.content.trim() : "";
         const type = messageTypes.has(req.body.type) ? req.body.type : "text";
         const replyTo = req.body.replyTo || null;
         if (type !== "voice" && type !== "image" && type !== "file" && (!content || content.length > 4000)) {
-            return res.status(400).json({ message: "Message must contain 1–4000 characters." });
+            return reject(400, "Message must contain 1–4000 characters.");
         }
         if (["voice", "image", "file"].includes(type) && !req.file) {
-            return res.status(400).json({ message: "Choose a file before sending." });
+            return reject(400, "Choose a file before sending.");
         }
         if (type === "contact" && (!content || content.length > 4000)) {
-            return res.status(400).json({ message: "Choose a coursemate contact before sending." });
+            return reject(400, "Choose a coursemate contact before sending.");
         }
         if ((courseId === null) === (receiverProfileId === null)) {
-            return res.status(400).json({ message: "Choose one course chat or one private recipient." });
+            return reject(400, "Choose one course chat or one private recipient.");
         }
         if (type === "gif" || type === "sticker") {
             let url;
-            try { url = new URL(content); } catch { return res.status(400).json({ message: "Media must be a valid HTTPS URL." }); }
+            try { url = new URL(content); } catch { return reject(400, "Media must be a valid HTTPS URL."); }
             if (url.protocol !== "https:" || !["tenor.com", "media.tenor.com", "giphy.com", "media.giphy.com"].includes(url.hostname)) {
-                return res.status(400).json({ message: "Only Tenor or Giphy media links are allowed." });
+                return reject(400, "Only Tenor or Giphy media links are allowed.");
             }
         }
         if (type === "voice" && (!allowedAudioTypes.has(req.file.mimetype) || req.file.size > 5 * 1024 * 1024)) {
-            return res.status(400).json({ message: "Voice notes must be supported audio files up to 5 MB." });
+            return reject(400, "Voice notes must be supported audio files up to 5 MB.");
         }
         if (type === "image" && (!allowedImageTypes.has(req.file.mimetype) || req.file.size > 5 * 1024 * 1024)) {
-            return res.status(400).json({ message: "Images must be JPG, PNG, WebP, or GIF files up to 5 MB." });
+            return reject(400, "Images must be JPG, PNG, WebP, or GIF files up to 5 MB.");
         }
         if (type === "file" && req.file.size > 5 * 1024 * 1024) {
-            return res.status(400).json({ message: "Files must be 5 MB or smaller." });
+            return reject(400, "Files must be 5 MB or smaller.");
         }
         if (["image", "file"].includes(type) && req.file) {
             content = req.file.originalname
@@ -668,7 +798,7 @@ exports.sendMessage = async (req, res, next) => {
         let validMentionUserIds = [];
         if (courseId !== null) {
             if (!Number.isSafeInteger(courseId) || !(await getCourseAccess(courseId, profile))) {
-                return res.status(403).json({ message: "You must be enrolled in this course to send a group message." });
+                return reject(403, "You must be enrolled in this course to send a group message.");
             }
             const mentionNames = [...new Set(
                 (content.match(/@([a-z0-9_]{3,20})/gi) || [])
@@ -689,7 +819,7 @@ exports.sendMessage = async (req, res, next) => {
         } else {
             const recipient = await ChatProfile.findByPk(receiverProfileId, { attributes: ["id", "userId"] });
             if (!recipient || recipient.id === profile.id) {
-                return res.status(403).json({ message: "Choose another SmartCampus student for a private chat." });
+                return reject(403, "Choose another SmartCampus student for a private chat.");
             }
         }
 
@@ -698,14 +828,14 @@ exports.sendMessage = async (req, res, next) => {
             try {
                 contactId = JSON.parse(content).profileId;
             } catch {
-                return res.status(400).json({ message: "Choose a valid coursemate contact." });
+                return reject(400, "Choose a valid coursemate contact.");
             }
             const contact = await ChatProfile.findByPk(contactId, {
                 attributes: [...profileFields, "userId"]
             });
             if (!contact || contact.id === profile.id ||
                 !(await hasSharedCourse(req.user.id, contact.userId))) {
-                return res.status(403).json({ message: "You can only share contacts of coursemates." });
+                return reject(403, "You can only share contacts of coursemates.");
             }
             let contactVisibleToConversation;
             if (courseId !== null) {
@@ -720,7 +850,7 @@ exports.sendMessage = async (req, res, next) => {
                 );
             }
             if (!contactVisibleToConversation) {
-                return res.status(403).json({ message: "That contact is not a coursemate of everyone in this conversation." });
+                return reject(403, "That contact is not a coursemate of everyone in this conversation.");
             }
             req.contactCard = safeProfile(contact);
         }
@@ -735,7 +865,7 @@ exports.sendMessage = async (req, res, next) => {
                     ] },
                 attributes: ["id"]
             });
-            if (!reply) return res.status(400).json({ message: "The message you are replying to is unavailable." });
+            if (!reply) return reject(400, "The message you are replying to is unavailable.");
         }
 
         const validMentionNames = validMentionUserIds.map((member) => member.username);
@@ -761,6 +891,14 @@ exports.sendMessage = async (req, res, next) => {
             }
             return created;
         });
+        if (uploadedStorageKey) {
+            try {
+                await objectStorage.remove(uploadedStorageKey);
+                uploadedStorageKey = null;
+            } catch (error) {
+                console.error("Failed to remove chat attachment staging object:", error.message);
+            }
+        }
         const result = await ChatMessage.findByPk(message.id, {
             include: [
                 { model: ChatProfile, as: "sender", attributes: profileFields },
@@ -782,6 +920,13 @@ exports.sendMessage = async (req, res, next) => {
         }
         return res.status(201).json(serializeMessage(result, profile.id));
     } catch (error) {
+        if (uploadedStorageKey) {
+            try {
+                await objectStorage.remove(uploadedStorageKey);
+            } catch (cleanupError) {
+                console.error("Failed to remove rejected chat attachment:", cleanupError.message);
+            }
+        }
         return next(error);
     }
 };

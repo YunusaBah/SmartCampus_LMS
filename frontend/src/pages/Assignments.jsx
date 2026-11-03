@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import API from "../services/api";
+import { appendUploadedFile } from "../services/fileUploads";
 import { useAuth } from "../hooks/useAuth";
 import MaterialPreviewDialog from "../components/MaterialPreviewDialog";
 import RouteBackButton from "../components/RouteBackButton";
@@ -162,8 +163,11 @@ const Assignments = () => {
         payload.append("title", assignmentForm.title.trim());
         payload.append("description", assignmentForm.description.trim());
         payload.append("dueDate", assignmentForm.dueDate);
-        if (assignmentForm.file) payload.append("file", assignmentForm.file);
         try {
+            await appendUploadedFile(payload, assignmentForm.file, {
+                purpose: "assignment",
+                courseId: assignmentForm.courseId
+            });
             await API.post("/assignments", payload, {
                 headers: { "Content-Type": "multipart/form-data" }
             });
@@ -174,7 +178,7 @@ const Assignments = () => {
             setRefreshKey((key) => key + 1);
             window.dispatchEvent(new Event("smartcampus:dashboard-refresh"));
         } catch (requestError) {
-            setCreateAssignmentError(requestError.response?.data?.message || "Unable to publish this assignment.");
+            setCreateAssignmentError(requestError.response?.data?.message || requestError.message || "Unable to publish this assignment.");
         } finally {
             setCreatingAssignment(false);
         }
@@ -215,9 +219,12 @@ const Assignments = () => {
         const payload = new FormData();
         payload.append("assignmentId", assignment.id);
         if (reply) payload.append("answerText", reply);
-        if (file) payload.append("file", file);
         setSubmittingIds((current) => [...new Set([...current, assignment.id])]);
         try {
+            await appendUploadedFile(payload, file, {
+                purpose: "submission",
+                assignmentId: assignment.id
+            });
             await API.post("/assignments/submit", payload, { headers: { "Content-Type": "multipart/form-data" } });
             showMsg("Assignment submitted successfully.");
             setSubmissionModalReply("");
@@ -225,7 +232,7 @@ const Assignments = () => {
             setFeedback("");
             return true;
         } catch (requestError) {
-            const message = requestError.response?.data?.message || "Unable to submit assignment.";
+            const message = requestError.response?.data?.message || requestError.message || "Unable to submit assignment.";
             showMsg(message, "error");
             setFeedback(message);
             if (requestError.response?.status === 409) setRefreshKey((key) => key + 1);
@@ -966,9 +973,9 @@ const Assignments = () => {
                                             setSubmissionModalError("Choose a supported document, image, or ZIP archive.");
                                             return;
                                         }
-                                        if (file && file.size > 10 * 1024 * 1024) {
+                                        if (file && file.size > 20 * 1024 * 1024) {
                                             setSubmissionModalFile(null);
-                                            setSubmissionModalError("The submission file must be 10 MB or smaller.");
+                                            setSubmissionModalError("The submission file must be 20 MB or smaller.");
                                             return;
                                         }
                                         setSubmissionModalFile(file);
@@ -976,7 +983,7 @@ const Assignments = () => {
                                     }}
                                 />
                                 <small className="settings-field-hint">
-                                    {submissionModalFile?.name || "PDF, Office document, text, CSV, or image · up to 10 MB"}
+                                    {submissionModalFile?.name || "PDF, Office document, text, CSV, or image · up to 20 MB"}
                                 </small>
                             </label>
                             <label>Reply

@@ -4,6 +4,7 @@ import API from "../services/api";
 import Register from "./Register";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 import SmartCampusWalkthrough from "../components/SmartCampusWalkthrough";
+import ShareAppButton from "../components/ShareAppButton";
 import { readDefaultPage } from "../utils/settingsPreferences";
 import { FaArrowRight, FaCode, FaEnvelope, FaFacebookF, FaGraduationCap, FaHandshake, FaInstagram, FaLightbulb, FaLinkedinIn, FaPhone, FaTimes, FaWhatsapp } from "react-icons/fa";
 
@@ -193,13 +194,10 @@ const Login = () => {
                 return;
             }
 
-            if (newPassword !== confirmPassword) {
-                setError("The new passwords do not match.");
-                return;
-            }
             const response = await API.post("/auth/password/reset", {
                 token: resetToken,
-                newPassword
+                newPassword,
+                confirmPassword
             });
             setLoginOpen(false);
             setRecoveryMode("");
@@ -379,6 +377,7 @@ const Login = () => {
                 <span><strong>WhatsApp updates</strong><small>Join our channel</small></span>
                 <span className="whatsapp-live-indicator" aria-hidden="true" />
             </a>
+            <ShareAppButton floating />
 
             <footer className="portfolio-footer">
                 <span>© {new Date().getFullYear()} SmartCampus LMS. All rights reserved. Built by Yunusa Bah.</span>

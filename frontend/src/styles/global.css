@@ -958,6 +958,56 @@ body {
     color: #fff;
 }
 
+.share-app-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 42px;
+    margin-top: 3px;
+    padding: 9px 16px;
+    border: 1px solid var(--theme-accent);
+    border-radius: 999px;
+    background: var(--theme-accent);
+    color: #fff;
+    cursor: pointer;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 750;
+}
+
+.share-app-button:hover {
+    background: var(--theme-accent-hover);
+}
+
+.share-app-button:disabled {
+    cursor: wait;
+    opacity: 0.72;
+}
+
+.share-app-action {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 7px;
+}
+
+.share-app-settings {
+    margin: 0 0 20px;
+}
+
+.share-app-status {
+    color: var(--theme-muted);
+    font-size: 0.75rem;
+}
+
+@media (max-width: 560px) {
+    .share-app-settings .share-app-button {
+        min-height: 40px;
+        padding: 8px 13px;
+    }
+}
+
 .login-landing {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(300px, 0.72fr);
@@ -1597,7 +1647,7 @@ body {
     border: 0;
     border-bottom: 1px solid rgba(255, 255, 255, 0.14);
     border-radius: 0 0 24px 24px;
-    background: rgba(18, 27, 40, 0.72);
+    background: rgba(7, 9, 13, 0.96);
     box-shadow: 0 14px 40px rgba(0, 0, 0, 0.48);
     backdrop-filter: blur(18px);
 }
@@ -2242,6 +2292,43 @@ body {
     color: #fff;
     text-decoration: none;
     transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.share-app-floating {
+    position: fixed;
+    right: clamp(16px, 3vw, 36px);
+    bottom: calc(clamp(16px, 3vw, 32px) + 72px);
+    z-index: 240;
+}
+
+.share-app-floating .share-app-button {
+    min-height: 60px;
+    padding: 10px 20px;
+    border-color: rgba(255, 255, 255, 0.35);
+    background: #bd4d0b;
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.38);
+    font-size: 0.82rem;
+    transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.share-app-floating .share-app-button:hover {
+    transform: translateY(-3px);
+    background: #9e3f08;
+    box-shadow: 0 16px 38px rgba(0, 0, 0, 0.46);
+}
+
+.share-app-floating .share-app-status {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 8px);
+    width: max-content;
+    max-width: min(320px, calc(100vw - 32px));
+    padding: 9px 12px;
+    border: 1px solid rgba(255, 255, 255, 0.22);
+    border-radius: 10px;
+    background: rgba(12, 19, 29, 0.94);
+    color: #fff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
 .whatsapp-live-toggle:hover {
@@ -10631,6 +10718,11 @@ a:focus-visible {
         padding: 8px 13px 8px 10px;
     }
 
+    .share-app-floating {
+        right: 14px;
+        bottom: 78px;
+    }
+
     .auth-modal-backdrop,
     .register-modal-backdrop {
         padding: 14px;
@@ -10856,6 +10948,11 @@ a:focus-visible {
         min-height: 48px;
         gap: 7px;
         padding: 7px 11px 7px 9px;
+    }
+
+    .share-app-floating {
+        right: 10px;
+        bottom: 68px;
     }
 
     .whatsapp-live-toggle > svg {
@@ -13037,6 +13134,57 @@ p.course-manage-page-heading .course-created-date {
 
 .wa-profile-summary small {
     font-size: 0.72rem;
+}
+
+.wa-featured-developer {
+    margin-bottom: 12px;
+    border: 1px solid var(--theme-accent);
+    border-radius: 10px;
+    background: var(--theme-panel-input);
+}
+
+.wa-featured-developer .wa-course-avatar {
+    overflow: hidden;
+}
+
+.wa-featured-developer .wa-course-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.wa-profile-share {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 14px;
+}
+
+.wa-profile-share p {
+    margin: 0;
+    color: var(--theme-muted);
+    font-size: 0.72rem;
+}
+
+.chat-username-availability {
+    margin: -2px 0 2px;
+    font-size: 0.72rem;
+    text-align: left;
+}
+
+.chat-username-availability.is-available {
+    color: #43bf83;
+}
+
+.chat-username-availability.is-taken,
+.chat-username-availability.is-invalid,
+.chat-username-availability.is-error {
+    color: #ff8585;
+}
+
+.chat-username-availability.is-checking {
+    color: var(--theme-muted);
 }
 
 .wa-profile-permissions {

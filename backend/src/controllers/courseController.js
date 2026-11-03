@@ -17,12 +17,10 @@ const Announcement = require("../models/Announcement");
 const Message = require("../models/Message");
 const CalendarEvent = require("../models/CalendarEvent");
 const QuizAssessment = require("../models/QuizAssessment");
-const fs = require("fs");
-const path = require("path");
 const { sequelize } = require("../config/db");
 const recordAuditLog = require("../utils/recordAuditLog");
-const uploadsDirectory = require("../utils/uploadsDirectory");
-const validateMaterialFile = require("../utils/validateMaterialFile");
+const materialUpload = require("../utils/materialUpload");
+const { removeStoredUpload } = require("../utils/storedUpload");
 const { fn, col } = require("sequelize");
 const {
     COURSE_PERMISSIONS,
@@ -134,21 +132,22 @@ const idValue = (value) => {
 };
 
 exports.createCourse = async (req, res) => {
+    let uploadedFile;
     try {
         const { departmentId } = req.body;
         const fields = validateCourseFields(req.body, true);
         const introContent = optionalText(req.body.introContent ?? req.body.contents, 60000, "Introductory content") || "";
-        const contentFileMetadata = req.file ? await validateMaterialFile(req.file) : null;
+        uploadedFile = await materialUpload(req.file, req.body, req.user.id);
         let validDepartmentId = null;
         if (departmentId !== undefined && departmentId !== null) {
             const parsedDepartmentId = Number(departmentId);
             if (!Number.isSafeInteger(parsedDepartmentId) || parsedDepartmentId <= 0) {
-                if (req.file) await fs.promises.unlink(req.file.path);
+                if (uploadedFile) await removeStoredUpload(uploadedFile.fileUrl);
                 return res.status(400).json({ message: "Department not found" });
             }
             const department = await Department.findByPk(parsedDepartmentId);
             if (!department) {
-                if (req.file) await fs.promises.unlink(req.file.path);
+                if (uploadedFile) await removeStoredUpload(uploadedFile.fileUrl);
                 return res.status(400).json({ message: "Department not found" });
             }
             validDepartmentId = department.id;
@@ -167,15 +166,15 @@ exports.createCourse = async (req, res) => {
                         classCode,
                         departmentId: validDepartmentId
                     }, { transaction });
-                    if (introContent || req.file) {
+                    if (introContent || uploadedFile) {
                         await Lesson.create({
-                            title: req.file?.originalname || "Course introduction",
+                            title: uploadedFile?.fileName || "Course introduction",
                             content: introContent || "Download the attached course material.",
-                            fileUrl: req.file ? `/uploads/${req.file.filename}` : null,
-                            fileName: req.file ? path.basename(req.file.originalname) : null,
+                            fileUrl: uploadedFile?.fileUrl || null,
+                            fileName: uploadedFile?.fileName || null,
                             description: null,
-                            mimeType: contentFileMetadata?.mimeType || null,
-                            fileSize: contentFileMetadata?.fileSize || null,
+                            mimeType: uploadedFile?.mimeType || null,
+                            fileSize: uploadedFile?.fileSize || null,
                             uploadedById: req.user.id,
                             courseId: created.id,
                             orderIndex: 0
@@ -201,14 +200,22 @@ exports.createCourse = async (req, res) => {
         delete courseData.contentFileUrl;
         res.status(201).json(courseData);
     } catch (error) {
-        if (req.file) {
+        if (uploadedFile) {
             try {
-                await fs.promises.unlink(req.file.path);
+                await removeStoredUpload(uploadedFile.fileUrl);
             } catch (cleanupError) {
-                if (cleanupError.code !== "ENOENT") console.error("Failed to remove unused course file:", cleanupError);
+                console.error("Failed to remove unused course file:", cleanupError);
+            }
+        } else if (req.file) {
+            try {
+                await removeStoredUpload(`/uploads/${req.file.filename}`);
+            } catch (cleanupError) {
+                console.error("Failed to remove unused course file:", cleanupError);
             }
         }
         if (error.message === "File contents do not match a supported material file type" ||
+            error.message.startsWith("The uploaded file") ||
+            error.message.startsWith("Choose a valid file name") ||
             error.message?.includes("required") || error.message?.includes("characters") ||
             error.message?.includes("format") || error.message?.includes("date") ||
             error.message?.includes("setting") || error.message?.includes("status") ||
@@ -326,7 +333,7 @@ exports.deleteCourse = async (req, res) => {
         const [lessons, quizzes, assignments, assessments] = await Promise.all([
             Lesson.findAll({ where: { courseId: course.id }, attributes: ["id", "fileUrl"], transaction }),
             Quiz.findAll({ where: { courseId: course.id }, attributes: ["id"], transaction }),
-            Assignment.findAll({ where: { courseId: course.id }, attributes: ["id"], transaction }),
+            Assignment.findAll({ where: { courseId: course.id }, attributes: ["id", "fileUrl"], transaction }),
             QuizAssessment.findAll({
                 where: { courseId: course.id }, attributes: ["id"], transaction
             })
@@ -343,6 +350,7 @@ exports.deleteCourse = async (req, res) => {
         const uploadedFiles = [
             contentFileUrl,
             ...lessons.map((lesson) => lesson.fileUrl),
+            ...assignments.map((assignment) => assignment.fileUrl),
             ...submissions.map((submission) => submission.fileUrl)
         ].filter(Boolean);
 
@@ -368,11 +376,10 @@ exports.deleteCourse = async (req, res) => {
         await transaction.commit();
 
         for (const fileUrl of new Set(uploadedFiles)) {
-            const filePath = path.join(uploadsDirectory, path.basename(fileUrl));
             try {
-                await fs.promises.unlink(filePath);
+                await removeStoredUpload(fileUrl);
             } catch (error) {
-                if (error.code !== "ENOENT") console.error("Failed to remove deleted course file:", error);
+                console.error("Failed to remove deleted course file:", error);
             }
         }
         return res.json({ message: "Course deleted successfully" });

@@ -4,6 +4,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const User = require("../models/User");
 const sanitizeUser = require("../utils/sanitizeUser");
+const { isValidJwtSecret } = require("../utils/authConfiguration");
 const {
     normalizeEmail,
     normalizeName,
@@ -75,7 +76,7 @@ const deliverPasswordReset = async (delivery, email, token) => {
 };
 
 const issueSession = (user, res, statusCode = 200) => {
-    if (!process.env.JWT_SECRET) {
+    if (!isValidJwtSecret(process.env.JWT_SECRET)) {
         console.error("JWT_SECRET is not configured");
         return res.status(500).json({ message: "Authentication is not configured" });
     }
@@ -157,7 +158,7 @@ const verifyGoogleCredential = async (credential) => {
 
 exports.register = async (req, res) => {
     try {
-        const { fullName, email, password, role, matNumber, phone } = req.body;
+        const { fullName, email, password, confirmPassword, role, matNumber, phone } = req.body;
         const normalizedName = normalizeName(fullName);
         const normalizedEmail = normalizeEmail(email);
         if (!normalizedName || !normalizedEmail || !validatePassword(password) ||
@@ -165,6 +166,9 @@ exports.register = async (req, res) => {
             return res.status(400).json({
                 message: "Enter a valid name, email, password (at least 6 characters), and account type."
             });
+        }
+        if (password !== confirmPassword) {
+            return res.status(400).json({ message: "The passwords do not match." });
         }
 
         let normalizedMatNumber = null;
@@ -391,10 +395,13 @@ exports.requestPasswordReset = async (req, res) => {
 exports.resetPassword = async (req, res) => {
     try {
         res.set("Cache-Control", "no-store");
-        const { token, newPassword } = req.body;
+        const { token, newPassword, confirmPassword } = req.body;
         if (typeof token !== "string" || !/^[a-f0-9]{64}$/.test(token) ||
             !validatePassword(newPassword)) {
             return res.status(400).json({ message: "A valid reset token and new password are required." });
+        }
+        if (newPassword !== confirmPassword) {
+            return res.status(400).json({ message: "The new passwords do not match." });
         }
 
         const tokenHash = crypto.createHash("sha256").update(token).digest("hex");

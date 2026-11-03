@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { FaArrowRight, FaEye, FaPlus, FaQuestionCircle, FaSearch, FaTimes } from "react-icons/fa";
 import API from "../services/api";
+import { appendUploadedFile } from "../services/fileUploads";
 import { useAuth } from "../hooks/useAuth";
 import QuestionImportDialog from "../components/QuestionImportDialog";
 import useOfflineRefresh from "../hooks/useOfflineRefresh";
@@ -265,7 +266,10 @@ const Quizzes = () => {
                 payload.append("description", assignmentForm.description.trim());
                 payload.append("dueDate", assignmentForm.dueDate);
                 payload.append("workType", "classwork");
-                if (assignmentForm.file) payload.append("file", assignmentForm.file);
+                await appendUploadedFile(payload, assignmentForm.file, {
+                    purpose: "assignment",
+                    courseId
+                });
                 await API.post("/assignments", payload, {
                     headers: { "Content-Type": "multipart/form-data" }
                 });
@@ -303,7 +307,7 @@ const Quizzes = () => {
             setRefreshKey((key) => key + 1);
             window.dispatchEvent(new Event("smartcampus:dashboard-refresh"));
         } catch (requestError) {
-            setCreateError(requestError.response?.data?.message || "Unable to create this quiz.");
+            setCreateError(requestError.response?.data?.message || requestError.message || "Unable to create this quiz.");
         } finally {
             setCreating(false);
         }

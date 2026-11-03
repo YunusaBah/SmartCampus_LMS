@@ -44,6 +44,7 @@ const originalPublishProfiles = chatRealtime.publishProfiles;
 const originalEnrollmentFindAll = Enrollment.findAll;
 const originalEnrollmentFindOne = Enrollment.findOne;
 const originalUserFindByPk = User.findByPk;
+const originalUserFindOne = User.findOne;
 const originalSupabaseJwtSecret = process.env.SUPABASE_JWT_SECRET;
 
 afterEach(() => {
@@ -71,6 +72,7 @@ afterEach(() => {
     Enrollment.findAll = originalEnrollmentFindAll;
     Enrollment.findOne = originalEnrollmentFindOne;
     User.findByPk = originalUserFindByPk;
+    User.findOne = originalUserFindOne;
     if (originalSupabaseJwtSecret === undefined) delete process.env.SUPABASE_JWT_SECRET;
     else process.env.SUPABASE_JWT_SECRET = originalSupabaseJwtSecret;
 });
@@ -168,6 +170,7 @@ test("Realtime token endpoint explicitly falls back when Supabase signing is unc
 
 test("duplicate usernames are rejected with a clear conflict response", async () => {
     User.findByPk = async () => ({ id: 7, fullName: "Student Seven" });
+    ChatProfile.findOne = async () => null;
     ChatProfile.findOrCreate = async () => {
         const error = new Error("username must be unique");
         error.name = "SequelizeUniqueConstraintError";
@@ -185,6 +188,101 @@ test("duplicate usernames are rejected with a clear conflict response", async ()
 
     assert.equal(response.statusCode, 409);
     assert.match(response.body.message, /username is already taken/i);
+});
+
+test("chat usernames accept punctuation and spaces while preserving entered case", async () => {
+    User.findByPk = async () => ({ id: 7, fullName: "Student Seven" });
+    ChatProfile.findOne = async () => null;
+    ChatProfile.findOrCreate = async ({ defaults }) => {
+        assert.equal(defaults.username, "Student !+.");
+        return [{
+            id: "profile-seven",
+            username: defaults.username,
+            fullName: defaults.fullName,
+            avatarUrl: defaults.avatarUrl,
+            about: defaults.about
+        }, true];
+    };
+    const response = makeResponse();
+
+    await chatController.saveProfile({
+        user: { id: 7 },
+        body: { username: " Student !+. ", avatarUrl: null, about: "" }
+    }, response);
+
+    assert.equal(response.statusCode, 201);
+    assert.equal(response.body.profile.username, "Student !+.");
+});
+
+test("chat username availability checks names without a profile and rejects taken names", async () => {
+    ChatProfile.findOne = async () => ({ userId: 8 });
+    const response = makeResponse();
+
+    await chatController.checkUsernameAvailability({
+        user: { id: 7 },
+        query: { username: "  Name !  " }
+    }, response);
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.body, { available: false });
+});
+
+test("chat username availability allows the current user's own username", async () => {
+    ChatProfile.findOne = async () => ({ userId: 7 });
+    const response = makeResponse();
+
+    await chatController.checkUsernameAvailability({
+        user: { id: 7 },
+        query: { username: "My Name" }
+    }, response);
+
+    assert.deepEqual(response.body, { available: true });
+});
+
+test("the developer username is reserved for its verified account", async () => {
+    User.findByPk = async () => ({ email: "student@example.edu" });
+    const response = makeResponse();
+
+    await chatController.checkUsernameAvailability({
+        user: { id: 7 },
+        query: { username: "yunusa bah" }
+    }, response);
+
+    assert.deepEqual(response.body, { available: false });
+});
+
+test("the developer account receives its seeded chat profile when opening chats", async () => {
+    const developer = {
+        id: "developer-profile",
+        userId: 42,
+        username: "Yunusa Bah",
+        fullName: "Yunusa Bah",
+        avatarUrl: "/developer-profile.jpg",
+        about: "the brain behind the smartcampus",
+        phoneVisibility: "private_contacts",
+        emailVisibility: "private_contacts",
+        matNumberVisibility: "private_contacts"
+    };
+    ChatProfile.findOne = async ({ where }) => where.userId ? developer : null;
+    ChatProfile.findOrCreate = async ({ defaults }) => {
+        assert.equal(defaults.username, "Yunusa Bah");
+        return [developer, true];
+    };
+    User.findByPk = async () => ({
+        id: 42,
+        email: "BAHY1878@GMAIL.COM",
+        fullName: "Account Name"
+    });
+    Enrollment.findAll = async () => [];
+    ChatHiddenMessage.findAll = async () => [];
+    ChatMessage.findAll = async () => [];
+    const response = makeResponse();
+
+    await chatController.getMe({ user: { id: 42 } }, response);
+
+    assert.equal(response.body.profile.username, "Yunusa Bah");
+    assert.equal(response.body.profile.about, "the brain behind the smartcampus");
+    assert.equal(response.body.profile.avatarUrl, "/developer-profile.jpg");
 });
 
 test("username search finds SmartCampus students outside the requester's courses", async () => {
@@ -223,6 +321,7 @@ test("username search finds SmartCampus students outside the requester's courses
 
 test("coursemate discovery includes unique students from every enrolled course", async () => {
     ChatProfile.findOne = async () => ({ id: "viewer-profile", userId: 7 });
+    User.findOne = async () => null;
     Enrollment.findAll = async ({ attributes }) => (
         attributes.includes("courseId")
             ? [{ courseId: 3 }, { courseId: 5 }]
@@ -240,6 +339,39 @@ test("coursemate discovery includes unique students from every enrolled course",
     await chatController.listCoursemates({ user: { id: 7 }, query: {} }, response);
 
     assert.deepEqual(response.body.profiles.map((item) => item.id), ["student-8", "student-9"]);
+});
+
+test("new chat lists the seeded SmartCampus developer profile before coursemates", async () => {
+    ChatProfile.findOne = async ({ where }) => where.userId
+        ? { id: "viewer-profile", userId: 7 }
+        : null;
+    User.findOne = async () => ({
+        id: 42,
+        email: "bahy1878@gmail.com",
+        fullName: "Original Account Name"
+    });
+    ChatProfile.findOrCreate = async ({ where, defaults }) => {
+        assert.deepEqual(where, { userId: 42 });
+        assert.equal(defaults.username, "Yunusa Bah");
+        assert.equal(defaults.fullName, "Yunusa Bah");
+        assert.equal(defaults.about, "the brain behind the smartcampus");
+        assert.equal(defaults.avatarUrl, "/developer-profile.jpg");
+        assert.equal(defaults.emailVisibility, "private_contacts");
+        return [{
+            id: "developer-profile",
+            ...defaults
+        }, true];
+    };
+    Enrollment.findAll = async ({ attributes }) => (
+        attributes.includes("courseId") ? [] : []
+    );
+    const response = makeResponse();
+
+    await chatController.listCoursemates({ user: { id: 7 }, query: {} }, response);
+
+    assert.deepEqual(response.body.profiles, []);
+    assert.equal(response.body.featuredProfile.id, "developer-profile");
+    assert.equal(response.body.featuredProfile.username, "Yunusa Bah");
 });
 
 test("course messages include an unread divider marker for messages received since last visit", async () => {

@@ -11,6 +11,9 @@ module.exports = () => {
             await connectDB();
             await runMigrations();
             await sequelize.sync();
+            if (runMigrations.ensureIdentityIndexes) {
+                await runMigrations.ensureIdentityIndexes();
+            }
             await runChatSecurity();
             console.log("Database synced");
         })().catch((error) => {

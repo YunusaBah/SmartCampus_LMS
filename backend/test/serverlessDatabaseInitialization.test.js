@@ -21,7 +21,9 @@ const originalChatSecurity = chatSecurity;
 const initializationCalls = [];
 db.sequelize.authenticate = async () => initializationCalls.push("connect");
 db.sequelize.sync = async () => initializationCalls.push("sync");
-require.cache[migrationPath].exports = async () => initializationCalls.push("migrations");
+const mockedMigrations = async () => initializationCalls.push("migrations");
+mockedMigrations.ensureIdentityIndexes = async () => initializationCalls.push("identity indexes");
+require.cache[migrationPath].exports = mockedMigrations;
 require.cache[chatSecurityPath].exports = async () => initializationCalls.push("chat security");
 const initializeDatabase = require(initializerPath);
 
@@ -36,5 +38,5 @@ after(() => {
 test("serverless database initialization applies chat security after schema sync", async () => {
     await initializeDatabase();
 
-    assert.deepEqual(initializationCalls, ["connect", "migrations", "sync", "chat security"]);
+    assert.deepEqual(initializationCalls, ["connect", "migrations", "sync", "identity indexes", "chat security"]);
 });

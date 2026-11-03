@@ -2,7 +2,7 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const multer = require("multer");
 const authMiddleware = require("../middlewares/authMiddleware");
-const requireRole = require("../middlewares/roleMiddleware");
+const chatAccessMiddleware = require("../middlewares/chatAccessMiddleware");
 const chatController = require("../controllers/chatController");
 
 const router = express.Router();
@@ -73,11 +73,12 @@ const realtimeTokenLimiter = rateLimit({
     message: { message: "Realtime token refresh is temporarily limited." }
 });
 
-router.use(authMiddleware, requireRole("student"));
+router.use(authMiddleware, chatAccessMiddleware);
 router.get("/me", chatController.getMe);
 router.get("/events", chatController.streamEvents);
 router.get("/realtime-token", realtimeTokenLimiter, chatController.getRealtimeToken);
 router.get("/profile/settings", chatController.getProfileSettings);
+router.get("/profile/username-availability", profileSearchLimiter, chatController.checkUsernameAvailability);
 router.put("/profile", chatController.saveProfile);
 router.put("/profile/visibility", chatController.updateProfileVisibility);
 router.get("/profile/private-contact/:profileId", chatController.getPrivateContactApproval);

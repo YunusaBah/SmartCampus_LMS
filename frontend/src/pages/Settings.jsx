@@ -5,6 +5,7 @@ import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import useOfflineRefresh from "../hooks/useOfflineRefresh";
 import { profilePictureStorageKey, readProfilePicture } from "../utils/profilePicture";
+import ShareAppButton from "../components/ShareAppButton";
 import {
     defaultPageOptions,
     defaultPageStorageKey,
@@ -505,6 +506,8 @@ const Settings = ({ theme, setTheme }) => {
                 )}
                 <h1>{settingsTitle}</h1>
             </header>
+
+            {isSettingsHome && <ShareAppButton />}
 
             {hasSettingsMenu && (
                 <>

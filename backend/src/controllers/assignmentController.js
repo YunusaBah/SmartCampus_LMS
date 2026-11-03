@@ -11,7 +11,8 @@ const getCourseAccess = require("../utils/courseAccess");
 const discardUpload = require("../utils/discardUpload");
 const { sequelize } = require("../config/db");
 const createNotifications = require("../utils/createNotifications");
-const validateMaterialFile = require("../utils/validateMaterialFile");
+const materialUpload = require("../utils/materialUpload");
+const { removeStoredUpload } = require("../utils/storedUpload");
 const { hasCoursePermission, normalizePermissions } = require("../utils/coursePermissions");
 
 const assignmentDeadline = (value) => {
@@ -25,6 +26,7 @@ const assignmentDeadline = (value) => {
 };
 
 exports.createAssignment = async (req, res) => {
+    let uploadedFile;
     try {
         const { title, description, dueDate, courseId } = req.body;
         const workType = req.body.workType || "assignment";
@@ -38,7 +40,6 @@ exports.createAssignment = async (req, res) => {
             return res.status(400).json({ message: "All assignment fields are required" });
         }
 
-        if (req.file) await validateMaterialFile(req.file);
         const course = await Course.findByPk(courseId);
         if (!course) {
             await discardUpload(req.file);
@@ -53,6 +54,7 @@ exports.createAssignment = async (req, res) => {
             return res.status(403).json({ message: "Your lecturer has not granted assignment creation permission" });
         }
 
+        uploadedFile = await materialUpload(req.file, req.body, req.user.id);
         const assignment = await sequelize.transaction(async (transaction) => {
             const created = await Assignment.create({
                 title: title.trim(),
@@ -60,8 +62,8 @@ exports.createAssignment = async (req, res) => {
                 dueDate: parsedDueDate,
                 workType,
                 courseId,
-                fileUrl: req.file ? `/uploads/${req.file.filename}` : null,
-                fileName: req.file?.originalname || null
+                fileUrl: uploadedFile?.fileUrl || null,
+                fileName: uploadedFile?.fileName || null
             }, { transaction });
             await recordAuditLog({
                 actorId: req.user.id,
@@ -95,7 +97,16 @@ exports.createAssignment = async (req, res) => {
 
     } catch (error) {
         await discardUpload(req.file);
-        if (error.message === "File contents do not match a supported material file type") {
+        if (uploadedFile && !req.file) {
+            try {
+                await removeStoredUpload(uploadedFile.fileUrl);
+            } catch (cleanupError) {
+                console.error("Failed to remove rejected assignment file:", cleanupError);
+            }
+        }
+        if (error.message === "File contents do not match a supported material file type" ||
+            error.message.startsWith("The uploaded file") ||
+            error.message.startsWith("Choose a valid file name")) {
             return res.status(400).json({ message: error.message });
         }
         console.error("Failed to create assignment:", error);
@@ -399,6 +410,7 @@ exports.getMySubmissions = async (req, res) => {
 };
 
 exports.submitAssignment = async (req, res) => {
+    let uploadedFile;
     try {
         const { assignmentId, answerText } = req.body;
 
@@ -408,7 +420,7 @@ exports.submitAssignment = async (req, res) => {
         }
 
         if ((answerText !== undefined && (typeof answerText !== "string" || answerText.length > 20000)) ||
-            (!req.file && (typeof answerText !== "string" || !answerText.trim()))) {
+            (!req.file && !req.body.fileStorageKey && (typeof answerText !== "string" || !answerText.trim()))) {
             await discardUpload(req.file);
             return res.status(400).json({ message: "Enter a reply or attach a submission file" });
         }
@@ -442,12 +454,12 @@ exports.submitAssignment = async (req, res) => {
             await discardUpload(req.file);
             return res.status(409).json({ message: "You have already submitted this assignment." });
         }
-        if (req.file) await validateMaterialFile(req.file);
+        uploadedFile = await materialUpload(req.file, req.body, req.user.id);
         await Submission.create({
             studentId: req.user.id,
             assignmentId,
-            fileUrl: req.file ? `/uploads/${req.file.filename}` : null,
-            fileName: req.file?.originalname || null,
+            fileUrl: uploadedFile?.fileUrl || null,
+            fileName: uploadedFile?.fileName || null,
             answerText: answerText?.trim() || null
         });
 
@@ -455,7 +467,16 @@ exports.submitAssignment = async (req, res) => {
 
     } catch (error) {
         await discardUpload(req.file);
-        if (error.message === "File contents do not match a supported material file type") {
+        if (uploadedFile && !req.file) {
+            try {
+                await removeStoredUpload(uploadedFile.fileUrl);
+            } catch (cleanupError) {
+                console.error("Failed to remove rejected submission file:", cleanupError);
+            }
+        }
+        if (error.message === "File contents do not match a supported material file type" ||
+            error.message.startsWith("The uploaded file") ||
+            error.message.startsWith("Choose a valid file name")) {
             return res.status(400).json({ message: error.message });
         }
         console.error("Failed to submit assignment:", error);

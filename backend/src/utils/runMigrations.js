@@ -338,6 +338,26 @@ const applyChatMessageDeliveryAndReactionsMigration = async (queryInterface) => 
     }
 };
 
+const ensureIdentityIndexes = async () => {
+    const tables = await getTables(sequelize.getQueryInterface());
+    if (hasTable(tables, "Users")) {
+        const columns = await sequelize.getQueryInterface().describeTable("Users");
+        if (columns.email) {
+            await sequelize.query(
+                'CREATE UNIQUE INDEX IF NOT EXISTS "users_email_case_insensitive_unique" ON "Users" (LOWER("email"))'
+            );
+        }
+    }
+    if (hasTable(tables, "ChatProfiles")) {
+        const columns = await sequelize.getQueryInterface().describeTable("ChatProfiles");
+        if (columns.username) {
+            await sequelize.query(
+                'CREATE UNIQUE INDEX IF NOT EXISTS "chat_profiles_username_case_insensitive_unique" ON "ChatProfiles" (LOWER("username"))'
+            );
+        }
+    }
+};
+
 module.exports = async () => {
     const queryInterface = sequelize.getQueryInterface();
     const quote = (identifier) => queryInterface.quoteIdentifier(identifier);
@@ -360,6 +380,7 @@ module.exports = async () => {
             await applyAssignmentWorkTypeMigration(queryInterface);
             await applyLessonPrivateNotesMigration(queryInterface);
             await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+            await ensureIdentityIndexes();
             return;
         }
         const previousMigrations = migrationNames.slice(0, -1);
@@ -369,6 +390,7 @@ module.exports = async () => {
             await applyAssignmentWorkTypeMigration(queryInterface);
             await applyLessonPrivateNotesMigration(queryInterface);
             await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+            await ensureIdentityIndexes();
             return;
         }
     }
@@ -1479,8 +1501,10 @@ module.exports = async () => {
     await applyAssignmentWorkTypeMigration(queryInterface);
     await applyLessonPrivateNotesMigration(queryInterface);
     await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+    await ensureIdentityIndexes();
 };
 
+module.exports.ensureIdentityIndexes = ensureIdentityIndexes;
 module.exports.ensureLessonReadingProgressSchema = applyLessonReadingProgressMigration;
 module.exports.ensureLessonPrivateNotesSchema = applyLessonPrivateNotesMigration;
 module.exports.ensureChatMessageDeliveryAndReactionsSchema = applyChatMessageDeliveryAndReactionsMigration;

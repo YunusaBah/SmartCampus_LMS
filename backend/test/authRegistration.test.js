@@ -74,6 +74,7 @@ test("email registration creates a student account without requiring a phone num
             fullName: "Student Example",
             email: "Student@Example.edu",
             password: "student-password",
+            confirmPassword: "student-password",
             role: "student",
             matNumber: "STU-2026"
         }
@@ -116,6 +117,7 @@ test("email registration creates lecturer accounts without student-only details"
             fullName: "Lecturer Example",
             email: "lecturer@example.edu",
             password: "lecturer-password",
+            confirmPassword: "lecturer-password",
             role: "lecturer"
         }
     }, response);
@@ -127,6 +129,86 @@ test("email registration creates lecturer accounts without student-only details"
     assert.equal(createdUser.passwordLoginEnabled, true);
     assert.equal(await bcrypt.compare("lecturer-password", createdUser.password), true);
     assert.ok(response.body.token);
+});
+
+test("email registration rejects an email that already exists regardless of input casing", async () => {
+    User.findOne = async ({ where }) => {
+        assert.deepEqual(where, { email: "lecturer@example.edu" });
+        return { id: 22, email: "lecturer@example.edu" };
+    };
+    User.create = async () => assert.fail("A duplicate email must not create another account");
+    const response = createResponse();
+
+    await authController.register({
+        body: {
+            fullName: "Another Lecturer",
+            email: " Lecturer@Example.edu ",
+            password: "lecturer-password",
+            confirmPassword: "lecturer-password",
+            role: "lecturer"
+        }
+    }, response);
+
+    assert.equal(response.statusCode, 409);
+    assert.match(response.body.message, /email already exists/i);
+});
+
+test("email registration rejects mismatched password confirmation on the backend", async () => {
+    User.findOne = async () => assert.fail("Mismatched passwords must be rejected before lookup");
+    User.create = async () => assert.fail("Mismatched passwords must not create an account");
+    const response = createResponse();
+
+    await authController.register({
+        body: {
+            fullName: "Student Example",
+            email: "student@example.edu",
+            password: "student-password",
+            confirmPassword: "different-password",
+            role: "lecturer"
+        }
+    }, response);
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body.message, /passwords do not match/i);
+});
+
+test("password reset rejects mismatched password confirmation on the backend", async () => {
+    User.findOne = async () => assert.fail("Mismatched passwords must be rejected before lookup");
+    const response = createResponse();
+
+    await authController.resetPassword({
+        body: {
+            token: "a".repeat(64),
+            newPassword: "new-password",
+            confirmPassword: "different-password"
+        }
+    }, response);
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body.message, /passwords do not match/i);
+});
+
+test("password login refuses to issue a session with an insecure JWT secret", async () => {
+    process.env.JWT_SECRET = "change_this_to_a_long_random_secret";
+    const password = "account-password";
+    const user = {
+        id: 26,
+        tokenVersion: 0,
+        email: "student@example.edu",
+        role: "student",
+        passwordLoginEnabled: true,
+        password: await bcrypt.hash(password, 10)
+    };
+    User.findOne = async () => user;
+    const response = createResponse();
+
+    await authController.login({
+        body: { email: user.email, password }
+    }, response);
+
+    assert.equal(response.statusCode, 500);
+    assert.equal(response.body.message, "Authentication is not configured");
+    assert.equal(response.body.token, undefined);
 });
 
 test("Google registration creates lecturer accounts without student-only details", async () => {
@@ -215,6 +297,7 @@ test("email registration requires a student matriculation number", async () => {
             fullName: "Student Example",
             email: "student@example.edu",
             password: "student-password",
+            confirmPassword: "student-password",
             role: "student"
         }
     }, response);
@@ -233,6 +316,7 @@ test("email registration rejects an invalid phone number when one is provided", 
             fullName: "Student Example",
             email: "student@example.edu",
             password: "student-password",
+            confirmPassword: "student-password",
             role: "student",
             matNumber: "STU-2026",
             phone: "not a phone"

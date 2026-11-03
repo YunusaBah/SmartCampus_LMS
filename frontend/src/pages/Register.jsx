@@ -104,10 +104,6 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
         event.preventDefault();
         setError("");
         setMessage("");
-        if (formData.password !== formData.confirmPassword) {
-            setError("The passwords do not match.");
-            return;
-        }
 
         setLoading(true);
         try {
@@ -115,6 +111,7 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
                 fullName: formData.fullName,
                 email: formData.email,
                 password: formData.password,
+                confirmPassword: formData.confirmPassword,
                 role: formData.role,
                 matNumber: formData.role === "student" ? formData.matNumber : undefined,
                 phone: formData.role === "student" ? formData.phone : undefined

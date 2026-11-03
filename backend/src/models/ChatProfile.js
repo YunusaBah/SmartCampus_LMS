@@ -8,7 +8,7 @@ module.exports = sequelize.define("ChatProfile", {
         type: DataTypes.STRING(20),
         allowNull: false,
         unique: true,
-        validate: { is: /^[a-z0-9_]{3,20}$/ }
+        validate: { len: [1, 20], notEmpty: true }
     },
     fullName: { type: DataTypes.STRING(255), allowNull: false },
     avatarUrl: { type: DataTypes.TEXT, allowNull: true },

@@ -28,11 +28,17 @@ import {
     FaUserPlus
 } from "react-icons/fa";
 import API from "../services/api";
+import { appendUploadedFile } from "../services/fileUploads";
 import { getUser } from "../hooks/useAuth";
 
 const formatTime = (date) => new Date(date).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit"
+});
+
+const hasControlCharacters = (value) => [...value].some((character) => {
+    const code = character.codePointAt(0);
+    return code < 32 || code === 127;
 });
 
 const messagePreview = (message) => {
@@ -78,12 +84,14 @@ const readSavedChatMedia = (userId) => {
 
 const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     const [user, setUser] = useState(getUser);
-    const isStudent = user?.role === "student";
+    const canUseChat = user?.role === "student" ||
+        user?.email?.trim().toLowerCase() === "bahy1878@gmail.com";
     const [open, setOpen] = useState(initialOpen);
     const [chatLoaded, setChatLoaded] = useState(false);
     const [profile, setProfile] = useState(null);
     const [courses, setCourses] = useState([]);
     const [coursemates, setCoursemates] = useState([]);
+    const [featuredDeveloper, setFeaturedDeveloper] = useState(null);
     const [coursematesLoading, setCoursematesLoading] = useState(false);
     const [privateChats, setPrivateChats] = useState([]);
     const [chatFolder, setChatFolder] = useState("all");
@@ -100,6 +108,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     const [usernameSearchLoading, setUsernameSearchLoading] = useState(false);
     const [usernameSearchError, setUsernameSearchError] = useState("");
     const [username, setUsername] = useState("");
+    const [usernameAvailability, setUsernameAvailability] = useState({ username: "", status: "idle" });
     const [avatarUrl, setAvatarUrl] = useState("");
     const [about, setAbout] = useState("");
     const [profileError, setProfileError] = useState("");
@@ -108,6 +117,16 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     const [profilePhone, setProfilePhone] = useState("");
     const [profileEmail, setProfileEmail] = useState("");
     const [profileMatNumber, setProfileMatNumber] = useState("");
+    const [usernameShareStatus, setUsernameShareStatus] = useState("");
+    const usernameCandidate = username.trim();
+    const usernameCheckActive = open && (!profile || profileEditing);
+    const usernameCheckStatus = !usernameCheckActive || !usernameCandidate
+        ? "idle"
+        : usernameCandidate.length > 20 || hasControlCharacters(usernameCandidate)
+            ? "invalid"
+            : usernameAvailability.username === usernameCandidate
+                ? usernameAvailability.status
+                : "checking";
     const [contactVisibility, setContactVisibility] = useState({
         phoneVisibility: "private_contacts",
         emailVisibility: "private_contacts",
@@ -200,6 +219,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
             setTypingUsers([]);
             setShareAnnouncement(null);
             setShareError("");
+            setFeaturedDeveloper(null);
         };
         window.addEventListener("smartcampus:account-changed", syncAccount);
         window.addEventListener("storage", syncAccount);
@@ -231,7 +251,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     }, []);
 
     useEffect(() => {
-        if (!open || !isStudent) return undefined;
+        if (!open || !canUseChat) return undefined;
         let mounted = true;
         API.get("/chat/me")
             .then((response) => {
@@ -256,8 +276,9 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                 if (mounted) setChatLoaded(true);
             });
         return () => { mounted = false; };
-    }, [open, isStudent]);
+    }, [open, canUseChat]);
 
+    const ownProfileId = profile?.id;
     const loadMessages = useCallback(async (chat, quiet = false) => {
         if (!chat) return;
         try {
@@ -269,7 +290,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
             setMessages(response.data || []);
             if (!newMessagesDividerRef.current) {
                 const firstUnread = response.data.find((message) =>
-                    message.senderProfileId !== profile?.id &&
+                    message.senderProfileId !== ownProfileId &&
                     (message.isNew === true || (chat.type === "private" && message.isRead === false))
                 );
                 if (firstUnread) {
@@ -281,7 +302,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
         } catch (requestError) {
             if (!quiet) setError(requestError.response?.data?.message || "Unable to load this conversation.");
         }
-    }, [profile?.id]);
+    }, [ownProfileId]);
 
     useEffect(() => {
         if (!open || !activeChat || !profile) return undefined;
@@ -629,8 +650,42 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     }, [draft, activeChat]);
 
     useEffect(() => {
+        const candidate = username.trim();
+        if (!open || (profile && !profileEditing) || !candidate ||
+            candidate.length > 20 || hasControlCharacters(candidate)) return undefined;
+
+        let cancelled = false;
+        const timer = window.setTimeout(() => {
+            setUsernameAvailability({ username: candidate, status: "checking" });
+            API.get("/chat/profile/username-availability", {
+                params: { username: candidate },
+                skipOfflineCache: true
+            }).then((response) => {
+                if (!cancelled) {
+                    setUsernameAvailability({
+                        username: candidate,
+                        status: response.data.available ? "available" : "taken"
+                    });
+                }
+            }).catch((requestError) => {
+                if (!cancelled) {
+                    setUsernameAvailability({
+                        username: candidate,
+                        status: "error",
+                        message: requestError.response?.data?.message || "Unable to check username availability."
+                    });
+                }
+            });
+        }, 300);
+        return () => {
+            cancelled = true;
+            window.clearTimeout(timer);
+        };
+    }, [open, profile, profileEditing, username]);
+
+    useEffect(() => {
         const usernameQuery = query.trim().replace(/^@/, "").toLowerCase();
-        if (!open || view !== "search" || !/^[a-z0-9_]{3,20}$/.test(usernameQuery)) return undefined;
+        if (!open || view !== "search" || !usernameQuery || usernameQuery.length > 20) return undefined;
         let cancelled = false;
         const timer = window.setTimeout(() => {
             setUsernameSearchLoading(true);
@@ -704,6 +759,12 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     const saveUsername = async (event) => {
         event.preventDefault();
         setProfileError("");
+        if (usernameCheckStatus !== "available") {
+            setProfileError(usernameCheckStatus === "taken"
+                ? "That chat username is already taken."
+                : "Wait for the username availability check to finish.");
+            return;
+        }
         setProfileSaving(true);
         try {
             const response = await API.put("/chat/profile", {
@@ -718,6 +779,32 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
             setProfileError(requestError.response?.data?.message || "Unable to save your chat profile.");
         } finally {
             setProfileSaving(false);
+        }
+    };
+
+    const shareUsername = async () => {
+        const siteUrl = window.location.origin;
+        const text = `My SmartCampus username is @${profile.username}. Find me on SmartCampus LMS: ${siteUrl}`;
+        setUsernameShareStatus("");
+        try {
+            if (navigator.share) {
+                await navigator.share({
+                    title: "My SmartCampus username",
+                    text,
+                    url: siteUrl
+                });
+                setUsernameShareStatus("Your username was shared.");
+                return;
+            }
+            if (!navigator.clipboard?.writeText) {
+                throw new Error("Sharing is unavailable in this browser.");
+            }
+            await navigator.clipboard.writeText(text);
+            setUsernameShareStatus("Your username and website link were copied.");
+        } catch (requestError) {
+            if (requestError.name !== "AbortError") {
+                setUsernameShareStatus(requestError.message || "Unable to share your username.");
+            }
         }
     };
 
@@ -784,6 +871,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                     : undefined;
             const response = await API.get("/chat/coursemates", { params, skipOfflineCache: true });
             setCoursemates(response.data.profiles || []);
+            setFeaturedDeveloper(params ? null : response.data.featuredProfile || null);
             return response.data.profiles || [];
         } catch (requestError) {
             setError(requestError.response?.data?.message || "Unable to load your coursemates.");
@@ -866,11 +954,14 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
         formData.append("type", type);
         formData.append("content", file.name);
         if (replyTo) formData.append("replyTo", replyTo.id);
-        formData.append("attachment", file);
         setSending(true);
         setError("");
         setShowAttachments(false);
         try {
+            await appendUploadedFile(formData, file, {
+                purpose: "chat-media",
+                mediaType: type
+            });
             const response = await API.post("/chat/messages", formData, {
                 headers: { "Content-Type": "multipart/form-data" }
             });
@@ -880,7 +971,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                 setError(requestError.response?.data?.message || "Attachment sent, but the chat list could not refresh.");
             });
         } catch (requestError) {
-            setError(requestError.response?.data?.message || "Unable to send this attachment.");
+            setError(requestError.response?.data?.message || requestError.message || "Unable to send this attachment.");
         } finally {
             setSending(false);
         }
@@ -1051,10 +1142,17 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
         formData.append("type", "voice");
         formData.append("content", "Voice note");
         if (replyTo) formData.append("replyTo", replyTo.id);
-        formData.append("voice", blob, `voice-note.${blob.type.includes("mp4") ? "mp4" : "webm"}`);
+        let voiceExtension = "webm";
+        if (blob.type.includes("mp4")) voiceExtension = "mp4";
+        else if (blob.type.includes("ogg")) voiceExtension = "ogg";
+        const voiceFile = new File([blob], `voice-note.${voiceExtension}`, { type: blob.type });
         setSending(true);
         setError("");
         try {
+            await appendUploadedFile(formData, voiceFile, {
+                purpose: "chat-media",
+                mediaType: "voice"
+            });
             const response = await API.post("/chat/messages", formData, {
                 headers: { "Content-Type": "multipart/form-data" }
             });
@@ -1064,7 +1162,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                 setError(requestError.response?.data?.message || "Voice note sent, but the chat list could not refresh.");
             });
         } catch (requestError) {
-            setError(requestError.response?.data?.message || "Unable to send voice note.");
+            setError(requestError.response?.data?.message || requestError.message || "Unable to send voice note.");
         } finally {
             setSending(false);
         }
@@ -1138,7 +1236,8 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
         `${member.fullName} ${member.username}`.toLowerCase().includes(query.trim().toLowerCase())
     ), [coursemates, query]);
     const usernameSearchIsCoursemate = usernameSearchProfile
-        && coursemates.some((member) => member.id === usernameSearchProfile.id);
+        && (coursemates.some((member) => member.id === usernameSearchProfile.id) ||
+            usernameSearchProfile.id === featuredDeveloper?.id);
     const visibleChats = useMemo(() => {
         const courseItems = chatFolder === "private" ? [] : filteredCourses.map((course) => ({
             key: `course-${course.id}`,
@@ -1244,7 +1343,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
         return entries;
     }, [messages, newMessagesDividerId]);
 
-    if (!isStudent || !user) return null;
+    if (!canUseChat || !user) return null;
 
     return (
         <>
@@ -1300,15 +1399,23 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                 <input
                                     id="chat-username"
                                     value={username}
-                                    onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                                    minLength={3}
+                                    onChange={(event) => setUsername(event.target.value)}
+                                    minLength={1}
                                     maxLength={20}
-                                    pattern="[a-z0-9_]{3,20}"
-                                    placeholder="e.g. yunusa_bah"
+                                    placeholder="Choose any unique username"
                                     required
                                     autoFocus
                                 />
                             </div>
+                            {usernameCheckStatus !== "idle" && (
+                                <p className={`chat-username-availability is-${usernameCheckStatus}`} role="status">
+                                    {usernameCheckStatus === "checking" && "Checking username..."}
+                                    {usernameCheckStatus === "available" && "Username is available"}
+                                    {usernameCheckStatus === "taken" && "That username is already taken"}
+                                    {usernameCheckStatus === "invalid" && "Use 1–20 characters without control characters"}
+                                    {usernameCheckStatus === "error" && usernameAvailability.message}
+                                </p>
+                            )}
                             <label htmlFor="chat-about">About <span>(optional)</span></label>
                             <textarea
                                 id="chat-about"
@@ -1318,7 +1425,8 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                 placeholder="A little about you"
                             />
                             {profileError && <p className="chat-error" role="alert">{profileError}</p>}
-                            <button className="chat-primary-button" disabled={profileSaving || username.length < 3}>
+                            <button className="chat-primary-button" disabled={profileSaving ||
+                                usernameCheckStatus !== "available"}>
                                 {profileSaving ? "Saving..." : "Continue to chats"}
                             </button>
                         </form>
@@ -1622,6 +1730,14 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                         <small>{profileMatNumber ? `Student number: ${profileMatNumber}` : "No student number is saved to your account."}</small>
                                     </div>
                                 </div>
+                                {!profileEditing && (
+                                    <div className="wa-profile-share">
+                                        <button type="button" className="chat-default-picture-button" onClick={shareUsername}>
+                                            <FaShare aria-hidden="true" /> Share username
+                                        </button>
+                                        {usernameShareStatus && <p role="status">{usernameShareStatus}</p>}
+                                    </div>
+                                )}
                                 {!profileEditing ? <button type="button" className="chat-primary-button" onClick={() => {
                                     setUsername(profile.username);
                                     setAvatarUrl(profile.avatarUrl || "");
@@ -1658,14 +1774,22 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                             <input
                                                 id="chat-username"
                                                 value={username}
-                                                onChange={(event) => setUsername(event.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ""))}
-                                                minLength={3}
+                                                onChange={(event) => setUsername(event.target.value)}
+                                                minLength={1}
                                                 maxLength={20}
-                                                pattern="[a-z0-9_]{3,20}"
-                                                placeholder="e.g. yunusa_bah"
+                                                placeholder="Choose any unique username"
                                                 required
                                             />
                                         </div>
+                                        {usernameCheckStatus !== "idle" && (
+                                            <p className={`chat-username-availability is-${usernameCheckStatus}`} role="status">
+                                                {usernameCheckStatus === "checking" && "Checking username..."}
+                                                {usernameCheckStatus === "available" && "Username is available"}
+                                                {usernameCheckStatus === "taken" && "That username is already taken"}
+                                                {usernameCheckStatus === "invalid" && "Use 1–20 characters without control characters"}
+                                                {usernameCheckStatus === "error" && usernameAvailability.message}
+                                            </p>
+                                        )}
                                         <label htmlFor="chat-about">About <span>(optional)</span></label>
                                         <textarea
                                             id="chat-about"
@@ -1676,7 +1800,8 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                         />
                                         {profileError && <p className="chat-error" role="alert">{profileError}</p>}
                                         <div className="wa-profile-editor-actions">
-                                            <button className="chat-primary-button" disabled={profileSaving || username.length < 3}>
+                                            <button className="chat-primary-button" disabled={profileSaving ||
+                                                usernameCheckStatus !== "available"}>
                                                 {profileSaving ? "Saving..." : "Save chat profile"}
                                             </button>
                                             <button type="button" className="chat-default-picture-button" onClick={() => {
@@ -1783,9 +1908,8 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                     onChange={(event) => {
                                         setQuery(event.target.value);
                                         setUsernameSearchProfile(null);
-                                        setUsernameSearchLoading(/^[a-z0-9_]{3,20}$/i.test(
-                                            event.target.value.trim().replace(/^@/, "")
-                                        ));
+                                        const usernameQuery = event.target.value.trim().replace(/^@/, "");
+                                        setUsernameSearchLoading(Boolean(usernameQuery) && usernameQuery.length <= 20);
                                         setUsernameSearchError("");
                                     }}
                                     placeholder="Search coursemates or @username"
@@ -1796,7 +1920,34 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                             <div className="wa-list-scroll wa-coursemate-list">
                                 {coursematesLoading ? (
                                     <p className="wa-empty" role="status">Loading your coursemates...</p>
-                                ) : matchingCoursemates.map((member) => (
+                                ) : (
+                                    <>
+                                        {featuredDeveloper && (
+                                            <>
+                                                <p className="wa-section-label">SMARTCAMPUS DEVELOPER</p>
+                                                <button
+                                                    type="button"
+                                                    className="wa-conversation-row wa-featured-developer"
+                                                    onClick={() => openConversation({
+                                                        key: `private-${featuredDeveloper.id}`,
+                                                        id: featuredDeveloper.id,
+                                                        type: "private",
+                                                        title: featuredDeveloper.fullName,
+                                                        participant: featuredDeveloper
+                                                    })}
+                                                >
+                                                    <span className="wa-course-avatar wa-private-avatar">
+                                                        <img src={featuredDeveloper.avatarUrl} alt="" />
+                                                    </span>
+                                                    <span className="wa-conversation-main">
+                                                        <strong>{featuredDeveloper.fullName}</strong>
+                                                        <small>@{featuredDeveloper.username}</small>
+                                                        <small>{featuredDeveloper.about}</small>
+                                                    </span>
+                                                </button>
+                                            </>
+                                        )}
+                                        {matchingCoursemates.map((member) => (
                                     <button
                                         type="button"
                                         className="wa-conversation-row"
@@ -1817,7 +1968,9 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                             <small>@{member.username}{member.about ? ` · ${member.about}` : ""}</small>
                                         </span>
                                     </button>
-                                ))}
+                                        ))}
+                                    </>
+                                )}
                                 {usernameSearchLoading && (
                                     <p className="wa-empty" role="status">Searching SmartCampus usernames...</p>
                                 )}
@@ -1848,7 +2001,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                         </button>
                                     </>
                                 )}
-                                {!coursematesLoading && !query.trim() && !coursemates.length && (
+                                {!coursematesLoading && !query.trim() && !coursemates.length && !featuredDeveloper && (
                                     <p className="wa-empty">No coursemates have created a chat profile yet.</p>
                                 )}
                                 {!coursematesLoading && query.trim() && !matchingCoursemates.length
@@ -2144,22 +2297,16 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                         <button type="button" onClick={() => {
                                             setShowAttachments(false);
                                             imageInputRef.current?.click();
-                                        }}><FaImage aria-hidden="true" /> Add image</button>
+                                        }}><FaImage aria-hidden="true" /> Upload image</button>
                                         <button type="button" onClick={() => {
                                             setShowAttachments(false);
                                             fileInputRef.current?.click();
-                                        }}><FaFile aria-hidden="true" /> Add file</button>
-                                        <button type="button" onClick={() => {
-                                            setShowAttachments(false);
-                                            setMediaTab("gif");
-                                            setMediaType("gif");
-                                            setShowEmoji(true);
-                                        }}><FaPaperclip aria-hidden="true" /> GIF or sticker</button>
+                                        }}><FaFile aria-hidden="true" /> Upload file</button>
                                         <button type="button" onClick={async () => {
                                             setShowAttachments("contacts");
                                             await fetchCoursemates();
                                         }}>
-                                            <FaAddressCard aria-hidden="true" /> Add contact
+                                            <FaAddressCard aria-hidden="true" /> Share SmartCampus contact
                                         </button>
                                     </div>
                                     {showAttachments === "contacts" && (
@@ -2205,11 +2352,11 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                     setShowAttachments(false);
                                     setMediaTab("emoji");
                                     setShowEmoji((current) => !current);
-                                }}><FaSmile /></button>
+                                }} aria-haspopup="dialog" title="Emoji, GIFs, and stickers"><FaSmile /></button>
                                 <button type="button" className="wa-compose-icon" aria-label="Add attachment" onClick={() => {
                                     setShowEmoji(false);
                                     setShowAttachments((current) => current ? false : true);
-                                }}><FaPaperclip /></button>
+                                }} aria-haspopup="dialog" title="Upload an image or file, or share a contact"><FaPaperclip /></button>
                                 <input
                                     ref={draftRef}
                                     value={draft}

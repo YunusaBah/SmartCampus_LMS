@@ -1,5 +1,6 @@
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const { isValidJwtSecret } = require("../utils/authConfiguration");
 
 require("../config/env");
 
@@ -15,7 +16,7 @@ const authMiddleware = async (req, res, next) => {
         return res.status(401).json({ message: "A valid bearer token is required" });
     }
 
-    if (!process.env.JWT_SECRET) {
+    if (!isValidJwtSecret(process.env.JWT_SECRET)) {
         console.error("JWT_SECRET is not configured");
         return res.status(500).json({ message: "Authentication is not configured" });
     }

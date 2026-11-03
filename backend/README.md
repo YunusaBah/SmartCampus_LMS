@@ -38,6 +38,17 @@ CA, download its CA certificate from the provider's database settings and set
 `DB_SSL_CA_FILE` to that certificate's path. The certificate is added to the
 trusted CA set without disabling certificate or hostname verification.
 
+On Vercel, course materials, assignment files, submissions, and quiz-import
+documents use the private Supabase Storage bucket configured in the repository
+root's `DEPLOYMENT.md`. Set backend-only `SUPABASE_URL`,
+`SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_STORAGE_BUCKET`; the browser uses the
+public `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` to complete signed
+uploads. Keep the bucket private and set its maximum object size to 20 MB.
+Upload bytes go directly from the browser to Storage, not through the Vercel
+function request body. The backend checks access before signing and again
+before attaching an uploaded object to a resource. Local development continues
+to use the filesystem when Storage credentials are absent.
+
 During startup, the backend retries transient PostgreSQL connection failures
 with a capped delay instead of exiting. It will not listen for API requests
 until the database connects and migrations finish. If retries continue, verify

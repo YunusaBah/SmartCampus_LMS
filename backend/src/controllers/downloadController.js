@@ -13,6 +13,8 @@ const getCourseAccess = require("../utils/courseAccess");
 const { hasCoursePermission } = require("../utils/coursePermissions");
 
 const uploadsDirectory = require("../utils/uploadsDirectory");
+const objectStorage = require("../utils/objectStorage");
+const { objectKeyFor } = require("../utils/storedUpload");
 
 const parseResourceId = (value) => {
     if (!/^[0-9]+$/.test(value)) return null;
@@ -105,18 +107,12 @@ const getDownloadResource = async (req, res) => {
         return null;
     }
 
-    const filePath = await resolveUploadPath(fileUrl);
-    if (!filePath) {
-        res.status(404).json({ message: "File not found" });
-        return null;
-    }
-    return { filePath, downloadName };
+    return { fileUrl, downloadName };
 };
 
-const resolveUploadPath = async (fileUrl) => {
+const resolveLocalPath = async (fileUrl) => {
     const prefix = "/uploads/";
     if (typeof fileUrl !== "string" || !fileUrl.startsWith(prefix)) return null;
-
     const filename = fileUrl.slice(prefix.length);
     if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(filename)) return null;
 
@@ -135,9 +131,14 @@ const resolveUploadPath = async (fileUrl) => {
         relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath)) {
         return null;
     }
+    return (await fs.promises.stat(resolvedFile)).isFile() ? resolvedFile : null;
+};
 
-    const fileStats = await fs.promises.stat(resolvedFile);
-    return fileStats.isFile() ? resolvedFile : null;
+const loadResourceContent = async (resource) => {
+    const key = objectKeyFor(resource.fileUrl);
+    if (key) return { ...resource, buffer: await objectStorage.download(key) };
+    const filePath = await resolveLocalPath(resource.fileUrl);
+    return filePath ? { ...resource, filePath } : null;
 };
 
 exports.download = async (req, res, next) => {
@@ -145,7 +146,14 @@ exports.download = async (req, res, next) => {
     if (!resource) return;
 
     res.set("Cache-Control", "private, no-store");
-    return res.download(resource.filePath, resource.downloadName ? path.basename(resource.downloadName) : undefined, (error) => {
+    const key = objectKeyFor(resource.fileUrl);
+    if (key) {
+        const signedUrl = await objectStorage.signedDownloadUrl(key, resource.downloadName);
+        return res.redirect(302, signedUrl);
+    }
+    const filePath = await resolveLocalPath(resource.fileUrl);
+    if (!filePath) return res.status(404).json({ message: "File not found" });
+    return res.download(filePath, resource.downloadName ? path.basename(resource.downloadName) : undefined, (error) => {
         if (!error) return;
         if (res.headersSent) return next(error);
         if (error.code === "ENOENT") {
@@ -156,24 +164,27 @@ exports.download = async (req, res, next) => {
 };
 
 exports.previewOfficeDocument = async (req, res) => {
-    const resource = await getDownloadResource(req, res);
-    if (!resource) return;
+    const accessResource = await getDownloadResource(req, res);
+    if (!accessResource) return;
+    const resource = await loadResourceContent(accessResource);
+    if (!resource) return res.status(404).json({ message: "File not found" });
 
     try {
-        const extension = path.extname(resource.downloadName || resource.filePath).toLowerCase();
+        const extension = path.extname(resource.downloadName || "file").toLowerCase();
+        const buffer = resource.buffer || await fs.promises.readFile(resource.filePath);
         let content;
         let slides;
         if (extension === ".docx") {
-            if (!officeArchiveWithinLimits(resource.filePath)) {
+            if (!officeArchiveWithinLimits(buffer)) {
                 return res.status(413).json({ message: "This document exceeds the preview limits" });
             }
-            const result = await mammoth.extractRawText({ path: resource.filePath });
+            const result = await mammoth.extractRawText({ buffer });
             content = result.value;
         } else if ([".xls", ".xlsx"].includes(extension)) {
-            if (extension === ".xlsx" && !officeArchiveWithinLimits(resource.filePath)) {
+            if (extension === ".xlsx" && !officeArchiveWithinLimits(buffer)) {
                 return res.status(413).json({ message: "This spreadsheet exceeds the preview limits" });
             }
-            const workbook = XLSX.readFile(resource.filePath, { cellText: true });
+            const workbook = XLSX.read(buffer, { type: "buffer", cellText: true });
             const sheetNames = workbook.SheetNames.slice(0, 20);
             content = sheetNames.map((name) => {
                 const sheet = workbook.Sheets[name];
@@ -185,10 +196,10 @@ exports.previewOfficeDocument = async (req, res) => {
             }).join("\n\n");
             if (workbook.SheetNames.length > sheetNames.length) content += "\n\n[Additional sheets omitted]";
         } else if (extension === ".pptx") {
-            if (!officeArchiveWithinLimits(resource.filePath)) {
+            if (!officeArchiveWithinLimits(buffer)) {
                 return res.status(413).json({ message: "This presentation exceeds the preview limits" });
             }
-            const zip = new AdmZip(resource.filePath);
+            const zip = new AdmZip(buffer);
             const slideEntries = zip.getEntries()
                 .filter((entry) => /^ppt\/slides\/slide\d+\.xml$/.test(entry.entryName))
                 .sort((left, right) => Number(left.entryName.match(/\d+/)[0]) - Number(right.entryName.match(/\d+/)[0]));
@@ -241,8 +252,8 @@ const isSafeArchivePath = (value) => {
         !normalized.split("/").includes("..");
 };
 
-const officeArchiveWithinLimits = (filePath) => {
-    const entries = new AdmZip(filePath).getEntries();
+const officeArchiveWithinLimits = (file) => {
+    const entries = new AdmZip(file).getEntries();
     let totalSize = 0;
     for (const entry of entries) {
         const size = Number(entry.header.size) || 0;
@@ -326,15 +337,13 @@ const archiveMimeType = (entryName) => ({
     ".ogv": "video/ogg"
 }[path.extname(entryName).toLowerCase()] || "application/octet-stream");
 
-const loadArchive = async (req, res) => {
-    const resource = await getDownloadResource(req, res);
-    if (!resource) return null;
-    if (path.extname(resource.downloadName || resource.filePath).toLowerCase() !== ".zip") {
+const loadArchive = async (resource, res) => {
+    if (path.extname(resource.downloadName || "file").toLowerCase() !== ".zip") {
         res.status(415).json({ message: "This file is not a ZIP archive" });
         return null;
     }
 
-    const zip = new AdmZip(resource.filePath);
+    const zip = new AdmZip(resource.buffer || resource.filePath);
     const entries = zip.getEntries();
     if (entries.length > 2000) {
         res.status(413).json({ message: "ZIP archives may contain at most 2,000 files" });
@@ -361,7 +370,11 @@ const loadArchive = async (req, res) => {
 
 exports.listArchive = async (req, res) => {
     try {
-        const archive = await loadArchive(req, res);
+        const accessResource = await getDownloadResource(req, res);
+        if (!accessResource) return;
+        const resource = await loadResourceContent(accessResource);
+        if (!resource) return res.status(404).json({ message: "File not found" });
+        const archive = await loadArchive(resource, res);
         if (!archive) return;
         res.set("Cache-Control", "private, no-store");
         return res.json({ files: archive.files });
@@ -377,7 +390,11 @@ exports.downloadArchiveEntry = async (req, res) => {
         if (!isSafeArchivePath(entryPath)) {
             return res.status(400).json({ message: "Invalid archive file path" });
         }
-        const archive = await loadArchive(req, res);
+        const accessResource = await getDownloadResource(req, res);
+        if (!accessResource) return;
+        const resource = await loadResourceContent(accessResource);
+        if (!resource) return res.status(404).json({ message: "File not found" });
+        const archive = await loadArchive(resource, res);
         if (!archive) return;
         const entry = archive.zip.getEntry(entryPath);
         if (!entry || entry.isDirectory || !archive.files.some((file) => file.path === entryPath.replace(/\\/g, "/"))) {

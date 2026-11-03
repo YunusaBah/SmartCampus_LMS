@@ -8,10 +8,8 @@ const discardUpload = require("../utils/discardUpload");
 const Module = require("../models/Module");
 const LessonProgress = require("../models/LessonProgress");
 const { sequelize } = require("../config/db");
-const fs = require("fs/promises");
-const path = require("path");
-const uploadsDirectory = require("../utils/uploadsDirectory");
-const validateMaterialFile = require("../utils/validateMaterialFile");
+const materialUpload = require("../utils/materialUpload");
+const { removeStoredUpload } = require("../utils/storedUpload");
 const { hasCoursePermission } = require("../utils/coursePermissions");
 
 const isValidResourceUrl = (value) => {
@@ -33,6 +31,7 @@ const toMaterialResponse = (lesson) => {
 };
 
 exports.createLesson = async (req, res) => {
+    let uploadedFile;
     try {
         const { title, content, videoUrl, courseId, moduleId, orderIndex } = req.body;
 
@@ -40,7 +39,8 @@ exports.createLesson = async (req, res) => {
         if (typeof title !== "string" || !title.trim() ||
             (typeof content !== "undefined" && typeof content !== "string") ||
             (videoUrl !== undefined && typeof videoUrl !== "string") ||
-            (!resourceUrl && (typeof content !== "string" || !content.trim()) && !req.file) ||
+            (!resourceUrl && (typeof content !== "string" || !content.trim()) &&
+                !req.file && !req.body.fileStorageKey) ||
             !Number.isSafeInteger(Number(courseId)) || Number(courseId) <= 0 ||
             (orderIndex !== undefined && (!Number.isInteger(orderIndex) || orderIndex < 0))) {
             await discardUpload(req.file);
@@ -103,7 +103,7 @@ exports.createLesson = async (req, res) => {
             validModuleId = module.id;
         }
 
-        const fileMetadata = req.file ? await validateMaterialFile(req.file) : null;
+        uploadedFile = await materialUpload(req.file, req.body, req.user.id);
         const lesson = await Lesson.create({
             title: title.trim(),
             content: typeof content === "string" ? content.trim() : "",
@@ -112,10 +112,10 @@ exports.createLesson = async (req, res) => {
             courseId: course.id,
             moduleId: validModuleId,
             orderIndex: orderIndex ?? 0,
-            fileUrl: req.file ? `/uploads/${req.file.filename}` : null,
-            fileName: req.file ? path.basename(req.file.originalname) : null,
-            mimeType: fileMetadata?.mimeType || null,
-            fileSize: fileMetadata?.fileSize || null,
+            fileUrl: uploadedFile?.fileUrl || null,
+            fileName: uploadedFile?.fileName || null,
+            mimeType: uploadedFile?.mimeType || null,
+            fileSize: uploadedFile?.fileSize || null,
             uploadedById: req.user.id
         });
 
@@ -126,7 +126,16 @@ exports.createLesson = async (req, res) => {
 
     } catch (error) {
         await discardUpload(req.file);
-        if (error.message === "File contents do not match a supported material file type") {
+        if (uploadedFile && !req.file) {
+            try {
+                await removeMaterialFile(uploadedFile.fileUrl);
+            } catch (cleanupError) {
+                console.error("Failed to remove rejected course material:", cleanupError);
+            }
+        }
+        if (error.message === "File contents do not match a supported material file type" ||
+            error.message.startsWith("The uploaded file") ||
+            error.message.startsWith("Choose a valid file name")) {
             return res.status(400).json({ message: error.message });
         }
         console.error("Failed to create lesson:", error);
@@ -136,6 +145,7 @@ exports.createLesson = async (req, res) => {
 
 exports.updateLesson = async (req, res) => {
     let previousFileUrl;
+    let uploadedFile;
     try {
         const lesson = await Lesson.findByPk(req.params.id);
         if (!lesson) {
@@ -164,7 +174,7 @@ exports.updateLesson = async (req, res) => {
         }
         if (req.body.content !== undefined) {
             if (typeof req.body.content !== "string" || req.body.content.trim().length > 60000 ||
-                (!req.body.content.trim() && !req.file && !lesson.fileUrl &&
+                (!req.body.content.trim() && !req.file && !req.body.fileStorageKey && !lesson.fileUrl &&
                     !(typeof req.body.videoUrl === "string" ? req.body.videoUrl.trim() : lesson.videoUrl))) {
                 await discardUpload(req.file);
                 return res.status(400).json({ message: "Add a file, resource link, or written content" });
@@ -180,7 +190,7 @@ exports.updateLesson = async (req, res) => {
                 await discardUpload(req.file);
                 return res.status(400).json({ message: "Resource link must be a valid HTTP or HTTPS URL" });
             }
-            if (!req.body.videoUrl.trim() && !req.file && !lesson.fileUrl &&
+            if (!req.body.videoUrl.trim() && !req.file && !req.body.fileStorageKey && !lesson.fileUrl &&
                 !(typeof req.body.content === "string" ? req.body.content.trim() : lesson.content?.trim())) {
                 await discardUpload(req.file);
                 return res.status(400).json({ message: "Add a file, resource link, or written content" });
@@ -196,13 +206,13 @@ exports.updateLesson = async (req, res) => {
             }
             updates.moduleId = moduleId;
         }
-        if (req.file) {
-            const fileMetadata = await validateMaterialFile(req.file);
+        uploadedFile = await materialUpload(req.file, req.body, req.user.id);
+        if (uploadedFile) {
             previousFileUrl = lesson.fileUrl;
-            updates.fileUrl = `/uploads/${req.file.filename}`;
-            updates.fileName = path.basename(req.file.originalname);
-            updates.mimeType = fileMetadata.mimeType;
-            updates.fileSize = fileMetadata.fileSize;
+            updates.fileUrl = uploadedFile.fileUrl;
+            updates.fileName = uploadedFile.fileName;
+            updates.mimeType = uploadedFile.mimeType;
+            updates.fileSize = uploadedFile.fileSize;
             updates.uploadedById = req.user.id;
         }
         if (!Object.keys(updates).length) {
@@ -220,7 +230,16 @@ exports.updateLesson = async (req, res) => {
         return res.json({ message: "Course material updated successfully", lesson: toMaterialResponse(lesson) });
     } catch (error) {
         await discardUpload(req.file);
-        if (error.message === "File contents do not match a supported material file type") {
+        if (uploadedFile && !req.file) {
+            try {
+                await removeMaterialFile(uploadedFile.fileUrl);
+            } catch (cleanupError) {
+                console.error("Failed to remove rejected course material:", cleanupError);
+            }
+        }
+        if (error.message === "File contents do not match a supported material file type" ||
+            error.message.startsWith("The uploaded file") ||
+            error.message.startsWith("Choose a valid file name")) {
             return res.status(400).json({ message: error.message });
         }
         console.error("Failed to update course material:", error);
@@ -293,13 +312,7 @@ exports.savePrivateNote = async (req, res) => {
 };
 
 const removeMaterialFile = async (fileUrl) => {
-    if (typeof fileUrl !== "string" || !fileUrl.startsWith("/uploads/")) return;
-    const filePath = path.join(uploadsDirectory, path.basename(fileUrl));
-    try {
-        await fs.unlink(filePath);
-    } catch (error) {
-        if (error.code !== "ENOENT") throw error;
-    }
+    return removeStoredUpload(fileUrl);
 };
 
 exports.getLessons = async (req, res) => {

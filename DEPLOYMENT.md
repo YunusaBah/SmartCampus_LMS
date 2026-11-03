@@ -10,14 +10,14 @@ same-origin `/api` URLs, so no service binding is needed.
 - Vercel hosts the frontend and API, but it does not host this project's
   PostgreSQL database. Use Supabase PostgreSQL and configure the backend
   connection variables below.
-- The backend currently saves uploaded materials and submissions to local disk.
-  Vercel function storage is temporary and can differ between invocations.
-  Attachments therefore are not persistent in this deployment until the backend
-  is migrated to durable object storage. Do not rely on Vercel's `/tmp` for
-  production files.
-- Vercel's function request-size limit is lower than the local upload limit.
-  Uploads are capped at 4 MB on Vercel. Use direct-to-object-storage uploads for
-  larger files after an object-storage adapter is integrated.
+- Course materials, assignment files, submissions, and quiz-import documents
+  upload directly to a private Supabase Storage bucket. Files are limited to
+  20 MB each (chat media remains limited to 5 MB). Do not rely on Vercel's
+  temporary filesystem for persistent files.
+- Direct browser-to-storage uploads avoid Vercel's function request-size limit;
+  only a small, authenticated upload authorization request and file metadata go
+  through the API. Downloads still pass through the API's access checks before
+  a short-lived private download link is issued.
 
 ## 1. Prepare Supabase PostgreSQL
 
@@ -40,7 +40,28 @@ Vercel initializes the database on the first API invocation in each backend
 instance, then runs the existing migrations and Sequelize sync. Allow the first
 API request after a deploy to take longer than later requests.
 
-## 2. Import the repository into Vercel
+## 2. Configure private Supabase Storage
+
+In the same Supabase project, create a **private** Storage bucket named
+`smartcampus-files`. Set its maximum file size to **20 MB** and allow the
+following MIME types: `application/pdf`, `application/msword`,
+`application/vnd.openxmlformats-officedocument.wordprocessingml.document`,
+`application/vnd.ms-powerpoint`,
+`application/vnd.openxmlformats-officedocument.presentationml.presentation`,
+`application/vnd.ms-excel`,
+`application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`,
+`text/plain`, `text/csv`, `application/zip`, `application/octet-stream`,
+`image/jpeg`, `image/png`, `image/gif`, `image/webp`, `audio/webm`,
+`audio/mp4`, `audio/ogg`, `audio/mpeg`, and `audio/wav`.
+
+The backend issues per-file signed upload grants only after checking the
+authenticated user's course role and permissions. It validates uploaded
+material contents before attaching them to a course or submission. Keep the
+bucket private; the browser receives only the short-lived upload grant, never
+the service-role key. Existing local-disk files are not moved automatically;
+upload them again through the application if they still need to be retained.
+
+## 3. Import the repository into Vercel
 
 1. Push the repository to GitHub if it is not already there.
 2. In the [Vercel dashboard](https://vercel.com/dashboard), select **Add New →
@@ -51,7 +72,7 @@ API request after a deploy to take longer than later requests.
    service from its own directory; the frontend publishes its `dist` output.
 5. Add the environment variables below before deploying, then select **Deploy**.
 
-## 3. Configure project environment variables
+## 4. Configure project environment variables
 
 Add these in **Project → Settings → Environment Variables**. Use **Production**
 for the live site; add **Preview** too if preview deployments should connect to
@@ -68,11 +89,15 @@ the same services.
 | `VITE_GOOGLE_CLIENT_ID` | Same public Google OAuth Web client ID for the browser sign-in button |
 | `CLIENT_URL` | Exact production origin, e.g. `https://your-project.vercel.app` |
 | `SUPABASE_JWT_SECRET` | Backend-only Supabase JWT signing secret; required for chat Realtime tokens |
+| `SUPABASE_URL` | Supabase project URL for backend Storage access |
+| `SUPABASE_SERVICE_ROLE_KEY` | Backend-only Supabase service-role key for signed uploads, private downloads, and file cleanup |
+| `SUPABASE_STORAGE_BUCKET` | Private Storage bucket name; use `smartcampus-files` |
 | `VITE_SUPABASE_URL` | Public Supabase project URL for browser chat Realtime |
 | `VITE_SUPABASE_ANON_KEY` | Public Supabase anon/publishable key for browser chat Realtime |
 | `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Optional SMTP delivery for feedback and collaboration emails |
 | `FEEDBACK_RECIPIENT_EMAIL`, `COLLABORATION_RECIPIENT_EMAIL` | Optional destinations for those emails |
 | `OPENAI_API_KEY` | Optional; only needed for the AI assistant |
+| `VITE_ENABLE_AI_ASSISTANT` | Set to `true` to show the AI assistant button; leave `false` until `OPENAI_API_KEY` is configured |
 | `TENOR_API_KEY` | Optional; only needed for chat GIF/sticker search |
 
 `PORT` is managed by Vercel and is not required. Do not set `VITE_API_URL` for
@@ -91,7 +116,12 @@ Supabase project's JWT signing configuration; this is separate from the anon
 key. If Realtime is unavailable, the chat API retains its authenticated
 server-sent-events fallback.
 
-## 4. Finish Google sign-in configuration
+`SUPABASE_URL` and `VITE_SUPABASE_URL` must refer to the same Supabase project.
+The backend service-role key must never use a `VITE_` prefix. `VITE_SUPABASE_ANON_KEY`
+is public and is used by the browser to complete signed uploads; it cannot grant
+access to objects without a backend-issued upload grant.
+
+## 5. Finish Google sign-in configuration
 
 In Google Cloud Console, open the OAuth Web client and add the Vercel site's
 origin to **Authorized JavaScript origins** (for example,
@@ -101,7 +131,7 @@ origin. The origin must not include a path or trailing slash.
 The `GOOGLE_CLIENT_ID` backend value and `VITE_GOOGLE_CLIENT_ID` frontend value
 must match. Redeploy after setting or changing Vercel environment variables.
 
-## 5. Verify the deployment
+## 6. Verify the deployment
 
 After deployment:
 
@@ -117,10 +147,15 @@ After deployment:
 The backend service has a 60-second maximum function duration configured to
 accommodate database initialization and external identity verification.
 
-## 6. Before using course files in production
+6. Test uploading a course material larger than 4 MB but no larger than 20 MB,
+   then download it as an enrolled student and verify that an unauthorized
+   account cannot access it.
 
-The current upload/download code uses local filesystem paths. Configure a
-private, durable object store and migrate the backend upload, download, and
-delete paths to use it before relying on course materials, assignment files, or
-student submissions. Merely creating a Vercel Blob store or setting a storage
-environment variable does not migrate the existing filesystem implementation.
+## 7. Storage behavior
+
+The PostgreSQL database is hosted by Supabase, not by Vercel. Uploaded files are
+stored in the private Supabase bucket; records remain in PostgreSQL. Quiz
+document extraction and chat media are also staged in Storage to bypass the
+Vercel request-size limit. The backend removes those temporary objects after
+processing. Course materials, assignment files, and submissions remain in
+Storage until their owning records are deleted.

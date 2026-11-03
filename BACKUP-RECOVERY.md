@@ -1,25 +1,30 @@
 # SmartCampus backup and recovery
 
-Database backups and uploaded files are separate recovery concerns. A database dump does not include files under `backend/uploads`.
+Database backups and uploaded files are separate recovery concerns. A database
+backup does not include objects in the Supabase Storage bucket.
 
 ## Production requirements
 
-- Enable automated encrypted backups and point-in-time recovery with the MySQL provider. Retain daily backups for at least 30 days and keep a separate copy outside the database provider account.
-- The application currently stores uploads on its local filesystem. Vercel function storage is temporary and isolated between instances, so uploaded course materials and submissions are not durable. Integrate and verify private object storage before production use; do not treat `/tmp` or `UPLOADS_DIR` on Vercel as persistent storage.
+- Enable automated encrypted backups and point-in-time recovery for the Supabase PostgreSQL database. Retain backups according to the institution's recovery requirements and keep a separate copy outside the database provider account.
+- Course materials, assignment files, and submissions are stored in the private Supabase Storage bucket configured in `DEPLOYMENT.md`. Include that bucket in the backup and recovery plan; do not treat Vercel's `/tmp` or `UPLOADS_DIR` as persistent storage.
 - Restrict backup and object-storage access to the deployment team. Backups contain personal information, submissions, and grade history; do not put them in the repository or an unencrypted shared drive.
 - Configure `PASSWORD_RESET_DELIVERY_URL`, `PASSWORD_RESET_DELIVERY_SECRET` (at least 32 characters), and `PASSWORD_RESET_PAGE_URL` in the Vercel project environment. The delivery endpoint must authenticate `X-Reset-Delivery-Secret` and send the provided HTTPS link only to the supplied account email. The app does not send email itself.
 
 ## Database backup
 
-Run from a trusted workstation with the MySQL client installed. Set `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, and `DB_PASSWORD` from the production secret manager. Store the output only in an encrypted backup location:
+Use Supabase's managed PostgreSQL backups for production recovery. If a manual
+logical dump is needed, run `pg_dump` from a trusted workstation using the
+production connection URI from the secret manager. Store the output only in an
+encrypted backup location:
 
 ```powershell
-$env:MYSQL_PWD = $env:DB_PASSWORD
-mysqldump --host=$env:DB_HOST --port=$env:DB_PORT --user=$env:DB_USER --single-transaction --routines --triggers --events $env:DB_NAME > "smartcampus-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')).sql"
-Remove-Item Env:MYSQL_PWD
+$env:PGPASSWORD = $env:DB_PASSWORD
+pg_dump --dbname=$env:DATABASE_URL --no-password --format=custom --file="smartcampus-$((Get-Date).ToUniversalTime().ToString('yyyyMMdd-HHmmss')).dump"
+Remove-Item Env:PGPASSWORD
 ```
 
-Prefer the provider's managed backups for scheduled production backups; this command is a manual export/recovery aid, not a scheduler.
+The Storage bucket needs its own backup or replication plan; the database dump
+does not contain uploaded objects.
 
 ## Recovery exercise
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { FaBookOpen, FaEye, FaPlus, FaSearch, FaTimes } from "react-icons/fa";
 import API from "../services/api";
+import { appendUploadedFile } from "../services/fileUploads";
 import { useAuth } from "../hooks/useAuth";
 import MaterialPreviewDialog from "../components/MaterialPreviewDialog";
 import RouteBackButton from "../components/RouteBackButton";
@@ -100,10 +101,13 @@ const Materials = () => {
         payload.append("title", form.title);
         payload.append("courseId", form.courseId);
         payload.append("videoUrl", form.resourceUrl);
-        if (form.file) payload.append("file", form.file);
         setUploading(true);
         setUploadError("");
         try {
+            await appendUploadedFile(payload, form.file, {
+                purpose: "lesson",
+                courseId: form.courseId
+            });
             const response = await API.post("/lessons", payload, {
                 headers: { "Content-Type": "multipart/form-data" }
             });
@@ -118,7 +122,7 @@ const Materials = () => {
             setIsUploadOpen(false);
             window.dispatchEvent(new Event("smartcampus:dashboard-refresh"));
         } catch (error) {
-            setUploadError(error.response?.data?.message || "Unable to share this material.");
+            setUploadError(error.response?.data?.message || error.message || "Unable to share this material.");
         } finally {
             setUploading(false);
         }

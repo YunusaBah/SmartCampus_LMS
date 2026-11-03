@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import API from "../services/api";
+import { appendUploadedFile } from "../services/fileUploads";
 import { useAuth } from "../hooks/useAuth";
 import AIAssistant from "../components/AIAssistant";
 import MaterialPreviewDialog from "../components/MaterialPreviewDialog";
@@ -315,8 +316,11 @@ const CourseDetail = () => {
         formData.append("videoUrl", lessonForm.resourceUrl);
         formData.append("courseId", courseId);
         if (lessonForm.moduleId) formData.append("moduleId", lessonForm.moduleId);
-        if (lessonForm.file) formData.append("file", lessonForm.file);
         try {
+            await appendUploadedFile(formData, lessonForm.file, {
+                purpose: "lesson",
+                ...(editingLessonId ? { lessonId: editingLessonId } : { courseId })
+            });
             if (editingLessonId) {
                 await API.patch(`/lessons/${editingLessonId}`, formData, { headers: { "Content-Type": "multipart/form-data" } });
             } else {
@@ -328,7 +332,7 @@ const CourseDetail = () => {
             showAlert(editingLessonId ? "Course material updated!" : "Lesson uploaded!");
             loadCourse();
         } catch (err) {
-            showAlert(err.response?.data?.message || "Failed to upload lesson", "error");
+            showAlert(err.response?.data?.message || err.message || "Failed to upload lesson", "error");
         }
     };
 
@@ -373,14 +377,17 @@ const CourseDetail = () => {
         payload.append("description", assignmentForm.description);
         payload.append("dueDate", assignmentForm.dueDate);
         payload.append("courseId", courseId);
-        if (assignmentForm.file) payload.append("file", assignmentForm.file);
         try {
+            await appendUploadedFile(payload, assignmentForm.file, {
+                purpose: "assignment",
+                courseId
+            });
             await API.post("/assignments", payload, { headers: { "Content-Type": "multipart/form-data" } });
             setAssignmentForm({ title: "", description: "", dueDate: "", file: null });
             showAlert("Assignment created!");
             loadCourse();
         } catch (err) {
-            showAlert(err.response?.data?.message || "Failed to create assignment", "error");
+            showAlert(err.response?.data?.message || err.message || "Failed to create assignment", "error");
         }
     };
 
@@ -430,8 +437,11 @@ const CourseDetail = () => {
         const formData = new FormData();
         formData.append("assignmentId", assignmentId);
         if (answerText) formData.append("answerText", answerText);
-        if (file) formData.append("file", file);
         try {
+            await appendUploadedFile(formData, file, {
+                purpose: "submission",
+                assignmentId
+            });
             await API.post("/assignments/submit", formData, { headers: { "Content-Type": "multipart/form-data" } });
             setSubmitFiles((current) => {
                 const next = { ...current };
@@ -446,7 +456,7 @@ const CourseDetail = () => {
             showAlert("Assignment submitted!");
             loadCourse();
         } catch (err) {
-            showAlert(err.response?.data?.message || "Submit failed", "error");
+            showAlert(err.response?.data?.message || err.message || "Submit failed", "error");
             return;
         }
         try {
@@ -2022,8 +2032,9 @@ const CourseDetail = () => {
                 </section>
             )}
 
-            {/* AI Assistant — floating */}
-            <AIAssistant key={course.id} courseName={course.title} lessonContent={lessonContent} />
+            {import.meta.env.VITE_ENABLE_AI_ASSISTANT === "true" && (
+                <AIAssistant key={course.id} courseName={course.title} lessonContent={lessonContent} />
+            )}
             {previewLesson && <MaterialPreviewDialog
                 key={`${previewLesson.resourceType}-${previewLesson.id}`}
                 resourcePath={`/downloads/${previewLesson.resourceType}/${previewLesson.id}`}

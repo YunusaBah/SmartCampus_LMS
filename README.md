@@ -46,10 +46,10 @@ Services, routing `/api/*` to the backend and other paths to the frontend. See
 variables.
 
 Vercel does not host the database. Configure the backend to use your Supabase
-PostgreSQL connection as described in **[DEPLOYMENT.md](./DEPLOYMENT.md)**. The
-API currently stores uploaded files on local disk; Vercel's filesystem is
-temporary, so persistent file storage must be integrated before relying on
-course-material and submission uploads.
+PostgreSQL connection and private Supabase Storage bucket as described in
+**[DEPLOYMENT.md](./DEPLOYMENT.md)**. Course materials, assignment files, and
+submissions upload directly to Storage, up to 20 MB per file, rather than
+passing through Vercel's request-size-limited API functions.
 
 ---
 

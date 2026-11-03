@@ -10,7 +10,7 @@ const multer = require("multer");
 const path = require("path");
 const questionImportUpload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 10 * 1024 * 1024, files: 1 },
+    limits: { fileSize: 20 * 1024 * 1024, files: 1 },
     fileFilter(req, file, callback) {
         const extension = path.extname(file.originalname || "").toLowerCase();
         if (![".pdf", ".docx", ".pptx", ".txt", ".xlsx", ".csv"].includes(extension)) {

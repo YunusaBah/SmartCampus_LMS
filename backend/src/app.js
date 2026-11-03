@@ -19,6 +19,7 @@ const lmsRoutes = require("./Routes/lmsRoutes");
 const feedbackRoutes = require("./Routes/feedbackRoutes");
 const chatRoutes = require("./Routes/chatRoutes");
 const reportRoutes = require("./Routes/reportRoutes");
+const uploadRoutes = require("./Routes/uploadRoutes");
 const { sequelize } = require("./config/db");
 
 const app = express();
@@ -100,6 +101,7 @@ app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/uploads", uploadRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api", lmsRoutes);
 
@@ -118,7 +120,7 @@ app.use((err, req, res, next) => {
         return res.status(400).json({
             message: process.env.VERCEL
                 ? "File too large (max 4MB on Vercel)"
-                : "File too large (max 10MB)"
+                : "File too large (max 20MB)"
         });
     }
 

@@ -1,9 +1,10 @@
 import { useMemo, useRef, useState } from "react";
 import { FaCloudUploadAlt, FaTimes, FaTrash } from "react-icons/fa";
 import API from "../services/api";
+import { appendUploadedFile } from "../services/fileUploads";
 
 const extensions = [".pdf", ".docx", ".pptx", ".txt", ".xlsx", ".csv"];
-const maxFileSize = 10 * 1024 * 1024;
+const maxFileSize = 20 * 1024 * 1024;
 const optionLetters = ["A", "B", "C", "D"];
 
 const validQuestion = (question) => question.question.trim() &&
@@ -45,7 +46,7 @@ const QuestionImportDialog = ({ onClose, onImport }) => {
         }
         if (nextFile.size > maxFileSize) {
             setFile(null);
-            setError("This file exceeds the 10 MB upload limit.");
+            setError("This file exceeds the 20 MB upload limit.");
             return;
         }
         setFile(nextFile);
@@ -62,8 +63,8 @@ const QuestionImportDialog = ({ onClose, onImport }) => {
         setError("");
         extractionController.current = new AbortController();
         const payload = new FormData();
-        payload.append("file", file);
         try {
+            await appendUploadedFile(payload, file, { purpose: "question-import" });
             const response = await API.post("/quizzes/questions/extract", payload, {
                 headers: { "Content-Type": "multipart/form-data" },
                 signal: extractionController.current.signal,
@@ -84,7 +85,7 @@ const QuestionImportDialog = ({ onClose, onImport }) => {
             setStatus("Import preview ready.");
         } catch (requestError) {
             if (!extractionController.current?.signal.aborted) {
-                setError(requestError.response?.data?.message || "Unable to process the document. Try again.");
+                setError(requestError.response?.data?.message || requestError.message || "Unable to process the document. Try again.");
                 setStatus("");
             }
         } finally {
@@ -187,7 +188,7 @@ const QuestionImportDialog = ({ onClose, onImport }) => {
                     >
                         <FaCloudUploadAlt aria-hidden="true" />
                         <strong>Drag and drop a document here</strong>
-                        <span>PDF, DOCX, PPTX, TXT, XLSX, or CSV · Up to 10 MB</span>
+                        <span>PDF, DOCX, PPTX, TXT, XLSX, or CSV · Up to 20 MB</span>
                         <input
                             ref={fileInput}
                             className="sr-only"
