@@ -10741,11 +10741,35 @@ a:focus-visible {
 
 @media (max-width: 560px) {
     .login-portal {
+        position: relative;
+        isolation: isolate;
         padding: 0 16px 18px;
         background-color: #111827;
-        background-position: center, center 112px;
-        background-size: cover, 100% auto;
-        background-repeat: no-repeat;
+        background-image: none;
+    }
+
+    .login-portal::before,
+    .login-portal::after {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        content: "";
+    }
+
+    .login-portal::before {
+        z-index: -2;
+        background:
+            linear-gradient(110deg, rgba(15, 19, 28, 0.55), rgba(15, 19, 28, 0.66)),
+            url("../assets/utg-login-campus.png") center / cover no-repeat;
+        filter: blur(12px);
+        transform: scale(1.04);
+    }
+
+    .login-portal::after {
+        z-index: -1;
+        background:
+            linear-gradient(110deg, rgba(15, 19, 28, 0.26), rgba(15, 19, 28, 0.38)),
+            url("../assets/utg-login-campus.png") center / contain no-repeat;
     }
 
     .login-welcome h1 {

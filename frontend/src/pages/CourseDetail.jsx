@@ -152,8 +152,8 @@ const CourseDetail = () => {
         }
         try {
             await navigator.share({
-                title: `Join ${data.course.title} on SmartCampus`,
-                text: `Join my SmartCampus course${data.course.academicCode ? ` (${data.course.academicCode})` : ""}.`,
+                title: `Join ${data.course.title} on UTG-SmartCampusLMS-Community`,
+                text: `You are invited to join ${data.course.title} on SmartCampus LMS, the digital campus for the University of The Gambia.`,
                 url
             });
         } catch (shareError) {

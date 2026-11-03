@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { FaShare } from "react-icons/fa";
 
-const ideaNote = "Why SmartCampus LMS was created\nLearning information can be scattered across course pages, files, messages, and notices. SmartCampus brings the core student and lecturer workflows together so course resources, assignments, communication, and progress are easier to find and manage.";
+const shareText = "The First Digital Campus Platform for the University of The Gambia. Connect to courses, learning materials, assignments, and campus updates with SmartCampus LMS.";
 
 const ShareAppButton = ({ floating = false, className = "" }) => {
     const [status, setStatus] = useState("");
@@ -12,30 +12,23 @@ const ShareAppButton = ({ floating = false, className = "" }) => {
         if (sharing) return;
         setSharing(true);
         setStatus("");
-        const logoUrl = new URL("/smartcampus-mark.png", siteUrl).href;
-        const text = `THE IDEA\n\n${ideaNote}\n\n${siteUrl}\n\nSmartCampus LMS logo: ${logoUrl}`;
 
         try {
             if (navigator.share) {
-                const imageResponse = await fetch("/smartcampus-mark.png");
-                if (!imageResponse.ok) throw new Error("The SmartCampus logo could not be loaded.");
-                const logo = new File([await imageResponse.blob()], "smartcampus-logo.png", {
-                    type: "image/png"
+                await navigator.share({
+                    title: "UTG-SmartCampusLMS-Community",
+                    text: shareText,
+                    url: siteUrl
                 });
-                const shareData = { title: "SmartCampus LMS", text, url: siteUrl };
-                const fileShareSupported = navigator.canShare?.({ files: [logo] }) === true;
-                await navigator.share(fileShareSupported ? { ...shareData, files: [logo] } : shareData);
-                setStatus(fileShareSupported
-                    ? "SmartCampus link and logo shared."
-                    : "SmartCampus link shared. This browser could not attach the logo.");
+                setStatus("SmartCampus website shared.");
                 return;
             }
 
             if (!navigator.clipboard?.writeText) {
                 throw new Error("Sharing is unavailable in this browser.");
             }
-            await navigator.clipboard.writeText(text);
-            setStatus("The SmartCampus note and website link were copied.");
+            await navigator.clipboard.writeText(`${shareText}\n${siteUrl}`);
+            setStatus("The SmartCampus message and website link were copied.");
         } catch (error) {
             if (error.name !== "AbortError") {
                 setStatus(error.message || "Unable to share SmartCampus.");
