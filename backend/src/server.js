@@ -4,8 +4,7 @@ const fs = require("fs");
 const path = require("path");
 
 const app = require("./app");
-const sequelize = require("./config/db");
-const connectDB = sequelize.connectDB;
+const { sequelize, connectDB } = require("./config/db");
 require("./models/associations");
 const connectDatabaseWithRetry = require("./utils/connectDatabaseWithRetry");
 const runMigrations = require("./utils/runMigrations");

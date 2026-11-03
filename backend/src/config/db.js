@@ -103,6 +103,6 @@ const connectDB = async () => {
     console.log("Database connected successfully");
 };
 
-module.exports = sequelize;
-module.exports.sequelize = sequelize;
-module.exports.connectDB = connectDB;
+// Export a plain CommonJS object so Vercel's bundler preserves the named
+// database dependency instead of treating the Sequelize instance as default.
+module.exports = { sequelize, connectDB };

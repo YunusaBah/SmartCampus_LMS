@@ -1,5 +1,5 @@
 const { DataTypes, QueryTypes } = require("sequelize");
-const sequelize = require("../config/db");
+const { sequelize } = require("../config/db");
 
 const migrationName = "20261004_add_lms_features";
 const followupMigrationName = "20261004_02_lms_calendar_assessment_options";
