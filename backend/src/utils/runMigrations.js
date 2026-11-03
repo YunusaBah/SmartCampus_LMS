@@ -1,4 +1,4 @@
-const { DataTypes } = require("sequelize");
+const { DataTypes, QueryTypes } = require("sequelize");
 const { sequelize } = require("../config/db");
 
 const migrationName = "20261004_add_lms_features";
@@ -29,6 +29,56 @@ const announcementEngagementMigrationName = "20261010_07_announcement_engagement
 const assignmentTextRepliesMigrationName = "20261010_08_assignment_text_replies";
 const learningResourceLinksMigrationName = "20261010_09_expand_learning_resource_links";
 const courseStudentPermissionsMigrationName = "20261010_10_course_student_permissions";
+const chatProfileAndAttachmentsMigrationName = "20261101_01_chat_profiles_and_attachments";
+const chatProfilePermissionsMigrationName = "20261101_02_chat_profile_permissions";
+const chatProfileContactVisibilityMigrationName = "20261101_03_chat_profile_contact_visibility";
+const chatProfileContactApprovalMigrationName = "20261101_04_chat_profile_contact_approval";
+const classScheduleAndAutomaticAnnouncementsMigrationName = "20261102_01_class_schedule_automatic_announcements";
+const submissionReadMigrationName = "20261102_02_submission_read_tracking";
+const announcementCommentsMigrationName = "20261102_03_announcement_comments";
+const lessonReadingProgressMigrationName = "20261102_04_lesson_reading_progress";
+const assignmentWorkTypeMigrationName = "20261103_01_assignment_work_type";
+const lessonPrivateNotesMigrationName = "20261103_02_lesson_private_notes";
+const chatMessageDeliveryAndReactionsMigrationName = "20261103_03_chat_message_delivery_reactions";
+const migrationNames = [
+    migrationName,
+    followupMigrationName,
+    lecturerStudentRolesMigrationName,
+    roleEnumCleanupMigrationName,
+    enforceTwoRoleEnumMigrationName,
+    reconcileLmsSchemaMigrationName,
+    userTokenVersionMigrationName,
+    reconcileSchemaMigrationName,
+    reconcileCalendarAndAssessmentMigrationName,
+    googleAccountMigrationName,
+    courseContentsMigrationName,
+    passwordRecoveryMigrationName,
+    auditLogMigrationName,
+    performanceIndexesMigrationName,
+    courseManagementFieldsMigrationName,
+    courseIntegrityIndexesMigrationName,
+    learningMaterialMetadataMigrationName,
+    reconcileMaterialAndQuizGradesMigrationName,
+    quizTheoryAndQuestionTypesMigrationName,
+    assignmentFilesAndCalendarAssessmentsMigrationName,
+    assignmentReadMigrationName,
+    studentAnnouncementPermissionMigrationName,
+    submissionFileNameMigrationName,
+    announcementRolesMigrationName,
+    announcementEngagementMigrationName,
+    assignmentTextRepliesMigrationName,
+    learningResourceLinksMigrationName,
+    courseStudentPermissionsMigrationName,
+    chatProfileAndAttachmentsMigrationName,
+    chatProfilePermissionsMigrationName,
+    chatProfileContactVisibilityMigrationName,
+    chatProfileContactApprovalMigrationName,
+    classScheduleAndAutomaticAnnouncementsMigrationName,
+    submissionReadMigrationName,
+    announcementCommentsMigrationName,
+    lessonReadingProgressMigrationName,
+    assignmentWorkTypeMigrationName
+];
 const additions = {
     Users: {
         tokenVersion: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
@@ -66,8 +116,263 @@ const getTables = async (queryInterface) => {
 
 const hasTable = (tables, tableName) => tables.has(tableName.toLowerCase());
 
+const applyAnnouncementCommentsMigration = async (queryInterface) => {
+    const applied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: announcementCommentsMigrationName },
+        limit: 1
+    });
+    if (applied.length) return;
+
+    let tables = await getTables(queryInterface);
+    if (!hasTable(tables, "AnnouncementComments")) {
+        await queryInterface.createTable("AnnouncementComments", {
+            id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true, allowNull: false },
+            announcementId: { type: DataTypes.INTEGER, allowNull: false },
+            authorId: { type: DataTypes.INTEGER, allowNull: false },
+            parentCommentId: { type: DataTypes.INTEGER, allowNull: true },
+            body: { type: DataTypes.STRING(2000), allowNull: false },
+            createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+            updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+        });
+    }
+    let indexes = await queryInterface.showIndex("AnnouncementComments");
+    if (!indexes.some((index) => index.name === "announcement_comments_post_created")) {
+        await queryInterface.addIndex("AnnouncementComments", ["announcementId", "createdAt"], {
+            name: "announcement_comments_post_created"
+        });
+    }
+    if (!indexes.some((index) => index.name === "announcement_comments_parent")) {
+        await queryInterface.addIndex("AnnouncementComments", ["parentCommentId"], {
+            name: "announcement_comments_parent"
+        });
+    }
+
+    tables = await getTables(queryInterface);
+    if (!hasTable(tables, "AnnouncementCommentReactions")) {
+        await queryInterface.createTable("AnnouncementCommentReactions", {
+            id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true, allowNull: false },
+            commentId: { type: DataTypes.INTEGER, allowNull: false },
+            userId: { type: DataTypes.INTEGER, allowNull: false },
+            createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+            updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+        });
+    }
+    indexes = await queryInterface.showIndex("AnnouncementCommentReactions");
+    if (!indexes.some((index) => index.name === "announcement_comment_reaction_user_unique")) {
+        await queryInterface.addIndex("AnnouncementCommentReactions", ["commentId", "userId"], {
+            unique: true,
+            name: "announcement_comment_reaction_user_unique"
+        });
+    }
+    await queryInterface.bulkInsert("SchemaMigrations", [{
+        name: announcementCommentsMigrationName,
+        appliedAt: new Date()
+    }]);
+};
+
+const applyLessonReadingProgressMigration = async (queryInterface) => {
+    const tables = await getTables(queryInterface);
+    if (hasTable(tables, "LessonProgresses")) {
+        const columns = await queryInterface.describeTable("LessonProgresses");
+        for (const [columnName, definition] of Object.entries({
+            readingPosition: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+            readingProgress: { type: DataTypes.SMALLINT, allowNull: false, defaultValue: 0 },
+            lastReadAt: { type: DataTypes.DATE, allowNull: true }
+        })) {
+            if (!Object.prototype.hasOwnProperty.call(columns, columnName)) {
+                await queryInterface.addColumn("LessonProgresses", columnName, definition);
+            }
+        }
+    }
+
+    const applied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: lessonReadingProgressMigrationName },
+        limit: 1
+    });
+    if (!applied.length) {
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: lessonReadingProgressMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+};
+
+const applyAssignmentWorkTypeMigration = async (queryInterface) => {
+    const tables = await getTables(queryInterface);
+    if (hasTable(tables, "Assignments")) {
+        const columns = await queryInterface.describeTable("Assignments");
+        if (!Object.prototype.hasOwnProperty.call(columns, "workType")) {
+            await queryInterface.addColumn("Assignments", "workType", {
+                type: DataTypes.STRING(20),
+                allowNull: false,
+                defaultValue: "assignment"
+            });
+        }
+    }
+    const applied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: assignmentWorkTypeMigrationName },
+        limit: 1
+    });
+    if (!applied.length) {
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: assignmentWorkTypeMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+};
+
+const applyLessonPrivateNotesMigration = async (queryInterface) => {
+    let tables = await getTables(queryInterface);
+    if (!hasTable(tables, "LessonNotes")) {
+        await queryInterface.createTable("LessonNotes", {
+            id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true, allowNull: false },
+            lessonId: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+                references: { model: "Lessons", key: "id" },
+                onDelete: "CASCADE"
+            },
+            userId: {
+                type: DataTypes.INTEGER,
+                allowNull: false,
+                references: { model: "Users", key: "id" },
+                onDelete: "CASCADE"
+            },
+            content: { type: DataTypes.TEXT, allowNull: false, defaultValue: "" },
+            createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+            updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+        });
+    } else {
+        const columns = await queryInterface.describeTable("LessonNotes");
+        for (const [columnName, definition] of Object.entries({
+            lessonId: { type: DataTypes.INTEGER, allowNull: false },
+            userId: { type: DataTypes.INTEGER, allowNull: false },
+            content: { type: DataTypes.TEXT, allowNull: false, defaultValue: "" },
+            createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+            updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+        })) {
+            if (!Object.prototype.hasOwnProperty.call(columns, columnName)) {
+                await queryInterface.addColumn("LessonNotes", columnName, definition);
+            }
+        }
+    }
+
+    tables = await getTables(queryInterface);
+    if (hasTable(tables, "LessonNotes")) {
+        const indexes = await queryInterface.showIndex("LessonNotes");
+        if (!indexes.some((index) => index.name === "lesson_notes_user_unique")) {
+            await queryInterface.addIndex("LessonNotes", ["lessonId", "userId"], {
+                unique: true,
+                name: "lesson_notes_user_unique"
+            });
+        }
+    }
+
+    const applied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: lessonPrivateNotesMigrationName },
+        limit: 1
+    });
+    if (!applied.length) {
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: lessonPrivateNotesMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+};
+
+const applyChatMessageDeliveryAndReactionsMigration = async (queryInterface) => {
+    let tables = await getTables(queryInterface);
+    if (hasTable(tables, "ChatMessages")) {
+        const columns = await queryInterface.describeTable("ChatMessages");
+        if (!Object.prototype.hasOwnProperty.call(columns, "deliveredAt")) {
+            await queryInterface.addColumn("ChatMessages", "deliveredAt", {
+                type: DataTypes.DATE,
+                allowNull: true
+            });
+        }
+    }
+
+    tables = await getTables(queryInterface);
+    if (hasTable(tables, "ChatMessages") && hasTable(tables, "ChatProfiles") &&
+        !hasTable(tables, "ChatMessageReactions")) {
+        await queryInterface.createTable("ChatMessageReactions", {
+            id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
+            messageId: {
+                type: DataTypes.UUID,
+                allowNull: false,
+                references: { model: "ChatMessages", key: "id" },
+                onDelete: "CASCADE"
+            },
+            profileId: {
+                type: DataTypes.UUID,
+                allowNull: false,
+                references: { model: "ChatProfiles", key: "id" },
+                onDelete: "CASCADE"
+            },
+            emoji: { type: DataTypes.STRING(16), allowNull: false },
+            createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+            updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+        });
+    }
+
+    tables = await getTables(queryInterface);
+    if (hasTable(tables, "ChatMessageReactions")) {
+        const indexes = await queryInterface.showIndex("ChatMessageReactions");
+        if (!indexes.some((index) => index.name === "chat_message_reaction_unique")) {
+            await queryInterface.addIndex("ChatMessageReactions", ["messageId", "profileId", "emoji"], {
+                unique: true,
+                name: "chat_message_reaction_unique"
+            });
+        }
+    }
+
+    const applied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: chatMessageDeliveryAndReactionsMigrationName },
+        limit: 1
+    });
+    if (!applied.length) {
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: chatMessageDeliveryAndReactionsMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+};
+
 module.exports = async () => {
     const queryInterface = sequelize.getQueryInterface();
+    const quote = (identifier) => queryInterface.quoteIdentifier(identifier);
+    const checkExistingMigrations = async () => {
+        const rows = await sequelize.query(
+            'SELECT "name" FROM "SchemaMigrations"',
+            { type: QueryTypes.SELECT }
+        );
+        return new Set(rows.map((row) => row.name));
+    };
+
+    const schemaMigrationsExists = await sequelize.query(
+        "SELECT to_regclass('public.\"SchemaMigrations\"') AS \"schemaMigrations\"",
+        { type: QueryTypes.SELECT }
+    );
+    if (schemaMigrationsExists[0]?.schemaMigrations) {
+        const appliedMigrations = await checkExistingMigrations();
+        if (migrationNames.every((name) => appliedMigrations.has(name))) {
+            await applyLessonReadingProgressMigration(queryInterface);
+            await applyAssignmentWorkTypeMigration(queryInterface);
+            await applyLessonPrivateNotesMigration(queryInterface);
+            await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+            return;
+        }
+        const previousMigrations = migrationNames.slice(0, -1);
+        if (previousMigrations.every((name) => appliedMigrations.has(name))) {
+            await applyAnnouncementCommentsMigration(queryInterface);
+            await applyLessonReadingProgressMigration(queryInterface);
+            await applyAssignmentWorkTypeMigration(queryInterface);
+            await applyLessonPrivateNotesMigration(queryInterface);
+            await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+            return;
+        }
+    }
+
     let tables = await getTables(queryInterface);
     if (!hasTable(tables, "SchemaMigrations")) {
         await queryInterface.createTable("SchemaMigrations", {
@@ -147,10 +452,10 @@ module.exports = async () => {
             const userColumns = await queryInterface.describeTable("Users");
             if (Object.prototype.hasOwnProperty.call(userColumns, "role")) {
                 const tokenVersionUpdate = Object.prototype.hasOwnProperty.call(userColumns, "tokenVersion")
-                    ? ", `tokenVersion` = `tokenVersion` + 1"
+                    ? `, ${quote("tokenVersion")} = ${quote("tokenVersion")} + 1`
                     : "";
                 await queryInterface.sequelize.query(
-                    `UPDATE \`Users\` SET \`role\` = 'lecturer'${tokenVersionUpdate} WHERE \`role\` = 'admin'`
+                    `UPDATE ${quote("Users")} SET ${quote("role")} = 'lecturer'${tokenVersionUpdate} WHERE ${quote("role")} = 'admin'`
                 );
             }
         }
@@ -171,20 +476,21 @@ module.exports = async () => {
             if (Object.prototype.hasOwnProperty.call(userColumns, "role")) {
                 if (Object.prototype.hasOwnProperty.call(userColumns, "tokenVersion")) {
                     await queryInterface.sequelize.query(
-                        "UPDATE `Users` SET `role` = 'lecturer', `tokenVersion` = `tokenVersion` + 1 WHERE `role` = 'admin'"
+                        `UPDATE ${quote("Users")} SET ${quote("role")} = 'lecturer', ${quote("tokenVersion")} = ${quote("tokenVersion")} + 1 WHERE ${quote("role")} = 'admin'`
                     );
                 } else {
                     await queryInterface.sequelize.query(
-                        "UPDATE `Users` SET `role` = 'lecturer' WHERE `role` = 'admin'"
+                        `UPDATE ${quote("Users")} SET ${quote("role")} = 'lecturer' WHERE ${quote("role")} = 'admin'`
                     );
                 }
-                const nullable = userColumns.role.allowNull ? "NULL" : "NOT NULL";
-                const defaultValue = userColumns.role.defaultValue === undefined
-                    ? ""
-                    : ` DEFAULT ${sequelize.escape(userColumns.role.defaultValue)}`;
-                await queryInterface.sequelize.query(
-                    `ALTER TABLE \`Users\` MODIFY \`role\` ENUM('student','lecturer') ${nullable}${defaultValue}`
-                );
+                const roleDefinition = {
+                    type: DataTypes.ENUM("student", "lecturer"),
+                    allowNull: userColumns.role.allowNull
+                };
+                if (userColumns.role.defaultValue !== undefined) {
+                    roleDefinition.defaultValue = userColumns.role.defaultValue;
+                }
+                await queryInterface.changeColumn("Users", "role", roleDefinition);
             }
         }
         await queryInterface.bulkInsert("SchemaMigrations", [{
@@ -202,9 +508,11 @@ module.exports = async () => {
         if (hasTable(tables, "Users")) {
             const userColumns = await queryInterface.describeTable("Users");
             if (Object.prototype.hasOwnProperty.call(userColumns, "role")) {
-                await queryInterface.sequelize.query(
-                    "ALTER TABLE `Users` MODIFY `role` ENUM('student','lecturer') NULL DEFAULT 'student'"
-                );
+                await queryInterface.changeColumn("Users", "role", {
+                    type: DataTypes.ENUM("student", "lecturer"),
+                    allowNull: true,
+                    defaultValue: "student"
+                });
             }
         }
         await queryInterface.bulkInsert("SchemaMigrations", [{
@@ -241,7 +549,7 @@ module.exports = async () => {
             }
             if (addedTokenVersion) {
                 await queryInterface.sequelize.query(
-                    "UPDATE `Users` SET `tokenVersion` = 1"
+                    `UPDATE ${quote("Users")} SET ${quote("tokenVersion")} = 1`
                 );
             }
             await queryInterface.bulkInsert("SchemaMigrations", [{
@@ -534,10 +842,10 @@ module.exports = async () => {
 
             const [duplicates] = tableName === "Enrollments"
                 ? await sequelize.query(
-                    "SELECT `studentId`, `courseId` FROM `Enrollments` GROUP BY `studentId`, `courseId` HAVING COUNT(*) > 1 LIMIT 1"
+                    `SELECT ${quote("studentId")}, ${quote("courseId")} FROM ${quote("Enrollments")} GROUP BY ${quote("studentId")}, ${quote("courseId")} HAVING COUNT(*) > 1 LIMIT 1`
                 )
                 : await sequelize.query(
-                    "SELECT `classCode` FROM `Courses` WHERE `classCode` IS NOT NULL GROUP BY `classCode` HAVING COUNT(*) > 1 LIMIT 1"
+                    `SELECT ${quote("classCode")} FROM ${quote("Courses")} WHERE ${quote("classCode")} IS NOT NULL GROUP BY ${quote("classCode")} HAVING COUNT(*) > 1 LIMIT 1`
                 );
             if (duplicates.length) {
                 throw new Error(`Cannot enforce ${indexName}: duplicate existing records must be reviewed first`);
@@ -805,6 +1113,16 @@ module.exports = async () => {
                 });
             }
         }
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "CalendarEvents")) {
+            const indexes = await queryInterface.showIndex("CalendarEvents");
+            if (!indexes.some((index) => index.name === "calendar_course_occurrence_unique")) {
+                await queryInterface.addIndex("CalendarEvents", ["courseId", "occurrenceDate"], {
+                    unique: true,
+                    name: "calendar_course_occurrence_unique"
+                });
+            }
+        }
         await queryInterface.bulkInsert("SchemaMigrations", [{
             name: announcementRolesMigrationName,
             appliedAt: new Date()
@@ -927,13 +1245,13 @@ module.exports = async () => {
                 });
             }
             await sequelize.query(
-                "UPDATE `Enrollments` SET `permissions` = JSON_ARRAY('postAnnouncements') WHERE `canPostAnnouncements` = 1 AND (`permissions` IS NULL OR JSON_LENGTH(`permissions`) = 0)"
+                `UPDATE ${quote("Enrollments")} SET ${quote("permissions")} = '["postAnnouncements"]'::json WHERE ${quote("canPostAnnouncements")} = true AND (${quote("permissions")} IS NULL OR ${quote("permissions")}::jsonb = '[]'::jsonb)`
             );
             await sequelize.query(
-                "UPDATE `Enrollments` SET `permissionRole` = 'class_representative' WHERE `canPostAnnouncements` = 1 AND `permissionRole` IS NULL"
+                `UPDATE ${quote("Enrollments")} SET ${quote("permissionRole")} = 'class_representative' WHERE ${quote("canPostAnnouncements")} = true AND ${quote("permissionRole")} IS NULL`
             );
             await sequelize.query(
-                "UPDATE `Enrollments` SET `permissions` = JSON_ARRAY() WHERE `permissions` IS NULL"
+                `UPDATE ${quote("Enrollments")} SET ${quote("permissions")} = '[]'::json WHERE ${quote("permissions")} IS NULL`
             );
             await queryInterface.changeColumn("Enrollments", "permissions", {
                 type: DataTypes.JSON,
@@ -945,4 +1263,224 @@ module.exports = async () => {
             appliedAt: new Date()
         }]);
     }
+
+    const chatProfileAndAttachmentsApplied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: chatProfileAndAttachmentsMigrationName },
+        limit: 1
+    });
+    if (!chatProfileAndAttachmentsApplied.length) {
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "ChatProfiles")) {
+            const profileColumns = await queryInterface.describeTable("ChatProfiles");
+            if (!Object.prototype.hasOwnProperty.call(profileColumns, "about")) {
+                await queryInterface.addColumn("ChatProfiles", "about", {
+                    type: DataTypes.STRING(200),
+                    allowNull: false,
+                    defaultValue: ""
+                });
+            }
+            if (Object.prototype.hasOwnProperty.call(profileColumns, "avatarUrl")) {
+                await queryInterface.changeColumn("ChatProfiles", "avatarUrl", {
+                    type: DataTypes.TEXT,
+                    allowNull: true
+                });
+            }
+        }
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "ChatMessages")) {
+            for (const value of ["image", "file", "contact"]) {
+                await sequelize.query(
+                    `ALTER TYPE public."enum_ChatMessages_type" ADD VALUE IF NOT EXISTS '${value}'`
+                );
+            }
+        }
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: chatProfileAndAttachmentsMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+
+    const chatProfilePermissionsApplied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: chatProfilePermissionsMigrationName },
+        limit: 1
+    });
+    if (!chatProfilePermissionsApplied.length) {
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "ChatProfiles") && !hasTable(tables, "ChatProfilePermissions")) {
+            await queryInterface.createTable("ChatProfilePermissions", {
+                id: { type: DataTypes.UUID, primaryKey: true, allowNull: false },
+                profileId: {
+                    type: DataTypes.UUID,
+                    allowNull: false,
+                    references: { model: "ChatProfiles", key: "id" },
+                    onDelete: "CASCADE"
+                },
+                viewerProfileId: {
+                    type: DataTypes.UUID,
+                    allowNull: false,
+                    references: { model: "ChatProfiles", key: "id" },
+                    onDelete: "CASCADE"
+                },
+                canViewPhone: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+                createdAt: { type: DataTypes.DATE, allowNull: false },
+                updatedAt: { type: DataTypes.DATE, allowNull: false }
+            });
+        }
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "ChatProfilePermissions")) {
+            const indexes = await queryInterface.showIndex("ChatProfilePermissions");
+            if (!indexes.some((index) => index.name === "chat_profile_viewer_unique")) {
+                await queryInterface.addIndex("ChatProfilePermissions", ["profileId", "viewerProfileId"], {
+                    unique: true,
+                    name: "chat_profile_viewer_unique"
+                });
+            }
+        }
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: chatProfilePermissionsMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+
+    const contactVisibilityApplied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: chatProfileContactVisibilityMigrationName },
+        limit: 1
+    });
+    if (!contactVisibilityApplied.length) {
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "ChatProfiles")) {
+            const columns = await queryInterface.describeTable("ChatProfiles");
+            for (const columnName of ["phoneVisibility", "emailVisibility", "matNumberVisibility"]) {
+                if (!Object.prototype.hasOwnProperty.call(columns, columnName)) {
+                    await queryInterface.addColumn("ChatProfiles", columnName, {
+                        type: DataTypes.STRING(20),
+                        allowNull: false,
+                        defaultValue: "private_contacts"
+                    });
+                }
+            }
+        }
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: chatProfileContactVisibilityMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+
+    const contactApprovalApplied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: chatProfileContactApprovalMigrationName },
+        limit: 1
+    });
+    if (!contactApprovalApplied.length) {
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "ChatProfilePermissions")) {
+            const columns = await queryInterface.describeTable("ChatProfilePermissions");
+            if (!Object.prototype.hasOwnProperty.call(columns, "canViewContactDetails")) {
+                await queryInterface.addColumn("ChatProfilePermissions", "canViewContactDetails", {
+                    type: DataTypes.BOOLEAN,
+                    allowNull: false,
+                    defaultValue: false
+                });
+            }
+        }
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: chatProfileContactApprovalMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+
+    const classScheduleMigrationApplied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: classScheduleAndAutomaticAnnouncementsMigrationName },
+        limit: 1
+    });
+    if (!classScheduleMigrationApplied.length) {
+        for (const [tableName, columns] of Object.entries({
+            Courses: {
+                classDays: { type: DataTypes.JSON, allowNull: true },
+                classStartTime: { type: DataTypes.STRING(5), allowNull: true },
+                classEndTime: { type: DataTypes.STRING(5), allowNull: true },
+                classTimeZone: { type: DataTypes.STRING(100), allowNull: true }
+            },
+            CalendarEvents: {
+                occurrenceDate: { type: DataTypes.DATEONLY, allowNull: true },
+                status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "scheduled" }
+            },
+            Announcements: {
+                automaticKey: { type: DataTypes.STRING(255), allowNull: true }
+            }
+        })) {
+            tables = await getTables(queryInterface);
+            if (!hasTable(tables, tableName)) continue;
+            const existing = await queryInterface.describeTable(tableName);
+            for (const [columnName, definition] of Object.entries(columns)) {
+                if (!Object.prototype.hasOwnProperty.call(existing, columnName)) {
+                    await queryInterface.addColumn(tableName, columnName, definition);
+                }
+            }
+        }
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "Announcements")) {
+            const indexes = await queryInterface.showIndex("Announcements");
+            if (!indexes.some((index) => index.name === "announcements_automatic_key_unique")) {
+                await queryInterface.addIndex("Announcements", ["automaticKey"], {
+                    unique: true,
+                    name: "announcements_automatic_key_unique"
+                });
+            }
+        }
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: classScheduleAndAutomaticAnnouncementsMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+
+    const submissionReadMigrationApplied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: submissionReadMigrationName },
+        limit: 1
+    });
+    if (!submissionReadMigrationApplied.length) {
+        tables = await getTables(queryInterface);
+        if (hasTable(tables, "SubmissionReads")) {
+            const columns = await queryInterface.describeTable("SubmissionReads");
+            for (const [columnName, definition] of Object.entries({
+                submissionId: { type: DataTypes.INTEGER, allowNull: false },
+                lecturerId: { type: DataTypes.INTEGER, allowNull: false },
+                viewedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+            })) {
+                if (!Object.prototype.hasOwnProperty.call(columns, columnName)) {
+                    await queryInterface.addColumn("SubmissionReads", columnName, definition);
+                }
+            }
+        } else {
+            await queryInterface.createTable("SubmissionReads", {
+                id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true, allowNull: false },
+                submissionId: { type: DataTypes.INTEGER, allowNull: false },
+                lecturerId: { type: DataTypes.INTEGER, allowNull: false },
+                viewedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+                createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+                updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+            });
+        }
+        const indexes = await queryInterface.showIndex("SubmissionReads");
+        if (!indexes.some((index) => index.name === "submission_read_lecturer_unique")) {
+            await queryInterface.addIndex("SubmissionReads", ["submissionId", "lecturerId"], {
+                unique: true,
+                name: "submission_read_lecturer_unique"
+            });
+        }
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: submissionReadMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+
+    await applyAnnouncementCommentsMigration(queryInterface);
+
+    await applyLessonReadingProgressMigration(queryInterface);
+    await applyAssignmentWorkTypeMigration(queryInterface);
+    await applyLessonPrivateNotesMigration(queryInterface);
+    await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
 };
+
+module.exports.ensureLessonReadingProgressSchema = applyLessonReadingProgressMigration;
+module.exports.ensureLessonPrivateNotesSchema = applyLessonPrivateNotesMigration;
+module.exports.ensureChatMessageDeliveryAndReactionsSchema = applyChatMessageDeliveryAndReactionsMigration;

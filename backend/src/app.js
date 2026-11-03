@@ -17,6 +17,8 @@ const dashboardRoutes = require("./Routes/dashboardRoutes");
 const aiRoutes = require("./Routes/aiRoutes");
 const lmsRoutes = require("./Routes/lmsRoutes");
 const feedbackRoutes = require("./Routes/feedbackRoutes");
+const chatRoutes = require("./Routes/chatRoutes");
+const reportRoutes = require("./Routes/reportRoutes");
 const { sequelize } = require("./config/db");
 
 const app = express();
@@ -36,7 +38,8 @@ const limiter = rateLimit({
     limit: 100,
     standardHeaders: true,
     legacyHeaders: false,
-    skip: (req) => ["GET", "HEAD", "OPTIONS"].includes(req.method),
+    skip: (req) => ["GET", "HEAD", "OPTIONS"].includes(req.method) ||
+        req.path === "/api/chat/typing",
     message: { message: "Too many write requests. Please wait before trying again." }
 });
 
@@ -96,6 +99,8 @@ app.use("/api/assignments", assignmentRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/feedback", feedbackRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/reports", reportRoutes);
 app.use("/api", lmsRoutes);
 
 app.use((req, res) => {

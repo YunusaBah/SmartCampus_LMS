@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { FaCommentDots, FaPaperPlane } from "react-icons/fa";
 import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
 
 const CourseLecturerMessages = ({ courseId, isLecturer, canMessageLecturer }) => {
+    const offlineRefresh = useOfflineRefresh();
     const { user } = useAuth();
     const [messages, setMessages] = useState([]);
     const [students, setStudents] = useState([]);
@@ -57,7 +59,7 @@ const CourseLecturerMessages = ({ courseId, isLecturer, canMessageLecturer }) =>
             active = false;
             window.clearInterval(refreshTimer);
         };
-    }, [canAccessInbox, courseId, inboxKey, isLecturer, user?.id]);
+    }, [canAccessInbox, courseId, inboxKey, isLecturer, offlineRefresh, user?.id]);
 
     const sendMessage = async (event) => {
         event.preventDefault();

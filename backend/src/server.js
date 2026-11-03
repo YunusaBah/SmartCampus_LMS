@@ -6,7 +6,9 @@ const path = require("path");
 const app = require("./app");
 const { sequelize, connectDB } = require("./config/db");
 require("./models/associations");
+const connectDatabaseWithRetry = require("./utils/connectDatabaseWithRetry");
 const runMigrations = require("./utils/runMigrations");
+const runChatSecurity = require("./utils/chatSecurity");
 const sendDeadlineReminders = require("./utils/deadlineReminders");
 
 const uploadsDir = require("./utils/uploadsDirectory");
@@ -32,9 +34,31 @@ const validateEnvironment = () => {
 const startServer = async () => {
     try {
         validateEnvironment();
-        await connectDB();
+        await connectDatabaseWithRetry(connectDB);
+        console.log("Applying database migrations...");
         await runMigrations();
+        console.log("Synchronizing database models...");
+        await sequelize.query(`
+            DO $$
+            BEGIN
+                IF EXISTS (
+                    SELECT 1
+                    FROM pg_type t
+                    JOIN pg_namespace n ON n.oid = t.typnamespace
+                    WHERE t.typname = 'enum_ChatMessages_type'
+                      AND n.nspname = 'public'
+                ) THEN
+                    ALTER TYPE public."enum_ChatMessages_type" ADD VALUE IF NOT EXISTS 'voice';
+                    ALTER TYPE public."enum_ChatMessages_type" ADD VALUE IF NOT EXISTS 'image';
+                    ALTER TYPE public."enum_ChatMessages_type" ADD VALUE IF NOT EXISTS 'file';
+                    ALTER TYPE public."enum_ChatMessages_type" ADD VALUE IF NOT EXISTS 'contact';
+                END IF;
+            END
+            $$;
+        `);
         await sequelize.sync();
+        console.log("Configuring chat database security...");
+        await runChatSecurity();
         console.log("Database synced");
 
         app.listen(PORT, () => {

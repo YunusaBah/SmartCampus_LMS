@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const { sequelize } = require("../config/db");
+const { getOccurrences, dateTimeInZone } = require("../utils/classSchedule");
 const Course = require("../models/Course");
 const Enrollment = require("../models/Enrollment");
 const Assignment = require("../models/Assignment");
@@ -9,6 +10,8 @@ const LessonProgress = require("../models/LessonProgress");
 const Announcement = require("../models/Announcement");
 const AnnouncementReaction = require("../models/AnnouncementReaction");
 const AnnouncementView = require("../models/AnnouncementView");
+const AnnouncementComment = require("../models/AnnouncementComment");
+const AnnouncementCommentReaction = require("../models/AnnouncementCommentReaction");
 const Message = require("../models/Message");
 const Notification = require("../models/Notification");
 const CalendarEvent = require("../models/CalendarEvent");
@@ -143,15 +146,55 @@ exports.completeLesson = async (req, res) => {
         where: { studentId: req.user.id, courseId: lesson.courseId }
     });
     if (!enrollment) return res.status(403).json({ message: "Enroll in the course first" });
-    const [progress] = await LessonProgress.findOrCreate({
-        where: { studentId: req.user.id, lessonId: lesson.id },
-        defaults: { completedAt: new Date() }
-    });
-    if (!progress.completedAt) {
-        progress.completedAt = new Date();
-        await progress.save();
+    const completedAt = new Date();
+    try {
+        await LessonProgress.upsert({
+            studentId: req.user.id,
+            lessonId: lesson.id,
+            completedAt
+        }, { fields: ["completedAt"] });
+        res.json({ lessonId: lesson.id, completed: true, completedAt });
+    } catch (error) {
+        console.error("Failed to mark lesson complete:", error);
+        res.status(500).json({ message: "Failed to save lesson progress" });
     }
-    res.json({ lessonId: lesson.id, completed: true, completedAt: progress.completedAt });
+};
+
+exports.updateLessonReadingProgress = async (req, res) => {
+    const lesson = await Lesson.findByPk(req.params.lessonId);
+    if (!lesson) return res.status(404).json({ message: "Lesson not found" });
+    if (req.user.role !== "student") return res.status(403).json({ message: "Student access required" });
+    const enrollment = await Enrollment.findOne({
+        where: { studentId: req.user.id, courseId: lesson.courseId }
+    });
+    if (!enrollment) return res.status(403).json({ message: "Enroll in the course first" });
+
+    const { readingPosition, readingProgress } = req.body;
+    if (!Number.isSafeInteger(readingPosition) || readingPosition < 0 ||
+        readingPosition > 100_000_000 ||
+        !Number.isInteger(readingProgress) || readingProgress < 0 || readingProgress > 100) {
+        return res.status(400).json({ message: "Reading position or progress is invalid" });
+    }
+
+    try {
+        const now = new Date();
+        await LessonProgress.upsert({
+            studentId: req.user.id,
+            lessonId: lesson.id,
+            readingPosition,
+            readingProgress,
+            lastReadAt: now
+        }, { fields: ["readingPosition", "readingProgress", "lastReadAt"] });
+        return res.json({
+            lessonId: lesson.id,
+            readingPosition,
+            readingProgress,
+            lastReadAt: now
+        });
+    } catch (error) {
+        console.error("Failed to save lesson reading progress:", error);
+        return res.status(500).json({ message: "Failed to save reading progress" });
+    }
 };
 
 exports.getCourseProgress = async (req, res) => {
@@ -172,6 +215,7 @@ exports.getCourseProgress = async (req, res) => {
         });
         const completedByStudent = new Map();
         for (const row of progressRows) {
+            if (!row.completedAt) continue;
             completedByStudent.set(row.studentId, (completedByStudent.get(row.studentId) || 0) + 1);
         }
         return res.json({
@@ -198,8 +242,8 @@ exports.getCourseProgress = async (req, res) => {
     const progressRows = await LessonProgress.findAll({
         where: { studentId, lessonId: { [Op.in]: lessons.map((lesson) => lesson.id) } }
     });
-    const completed = new Map(progressRows.map((row) => [row.lessonId, row.completedAt]));
-    const completedLessons = completed.size;
+    const progressByLesson = new Map(progressRows.map((row) => [row.lessonId, row]));
+    const completedLessons = progressRows.filter((row) => row.completedAt).length;
     res.json({
         courseId: access.course.id,
         studentId,
@@ -209,8 +253,11 @@ exports.getCourseProgress = async (req, res) => {
         lessons: lessons.map((lesson) => ({
             id: lesson.id,
             title: lesson.title,
-            completed: completed.has(lesson.id),
-            completedAt: completed.get(lesson.id) || null
+            completed: Boolean(progressByLesson.get(lesson.id)?.completedAt),
+            completedAt: progressByLesson.get(lesson.id)?.completedAt || null,
+            readingPosition: progressByLesson.get(lesson.id)?.readingPosition || 0,
+            readingProgress: progressByLesson.get(lesson.id)?.readingProgress || 0,
+            lastReadAt: progressByLesson.get(lesson.id)?.lastReadAt || null
         }))
     });
 };
@@ -335,10 +382,56 @@ exports.setAnnouncementReaction = async (req, res) => {
     res.json({ reaction });
 };
 
+exports.createAnnouncementComment = async (req, res) => {
+    const result = await announcementParticipant(req.params.id, req.user);
+    if (result.status) return res.status(result.status).json({ message: result.message });
+    const { body, parentCommentId } = req.body;
+    if (!nonEmpty(body, 2000)) {
+        return res.status(400).json({ message: "Comment must contain 1 to 2000 characters" });
+    }
+
+    let parent = null;
+    if (parentCommentId !== undefined && parentCommentId !== null && parentCommentId !== "") {
+        const parsedParentId = idValue(parentCommentId);
+        if (!parsedParentId) return res.status(400).json({ message: "Invalid parent comment" });
+        parent = await AnnouncementComment.findByPk(parsedParentId);
+        if (!parent || parent.announcementId !== result.announcement.id || parent.parentCommentId) {
+            return res.status(400).json({ message: "Replies must belong to this announcement and a top-level comment" });
+        }
+        if (!result.access.isManager) {
+            return res.status(403).json({ message: "Only the course lecturer can reply to comments" });
+        }
+    }
+
+    const comment = await AnnouncementComment.create({
+        announcementId: result.announcement.id,
+        authorId: req.user.id,
+        parentCommentId: parent?.id || null,
+        body: body.trim()
+    });
+    const author = await User.findByPk(req.user.id, { attributes: ["id", "fullName", "role"] });
+    res.status(201).json({ ...comment.toJSON(), author });
+};
+
+exports.setAnnouncementCommentReaction = async (req, res) => {
+    const comment = await AnnouncementComment.findByPk(req.params.id);
+    if (!comment) return res.status(404).json({ message: "Comment not found" });
+    const result = await announcementParticipant(comment.announcementId, req.user);
+    if (result.status) return res.status(result.status).json({ message: result.message });
+    const where = { commentId: comment.id, userId: req.user.id };
+    const current = await AnnouncementCommentReaction.findOne({ where });
+    if (current) {
+        await current.destroy();
+        return res.json({ liked: false });
+    }
+    await AnnouncementCommentReaction.create(where);
+    res.json({ liked: true });
+};
+
 exports.getAnnouncementActivity = async (req, res) => {
     const result = await announcementParticipant(req.params.id, req.user);
     if (result.status) return res.status(result.status).json({ message: result.message });
-    const [views, reactions] = await Promise.all([
+    const [views, reactions, comments] = await Promise.all([
         AnnouncementView.findAll({
             where: { announcementId: result.announcement.id },
             include: [{ model: User, as: "user", attributes: ["id", "fullName"] }],
@@ -347,6 +440,18 @@ exports.getAnnouncementActivity = async (req, res) => {
         AnnouncementReaction.findAll({
             where: { announcementId: result.announcement.id },
             include: [{ model: User, as: "user", attributes: ["id", "fullName"] }],
+            order: [["createdAt", "ASC"]]
+        }),
+        AnnouncementComment.findAll({
+            where: { announcementId: result.announcement.id },
+            include: [
+                { model: User, as: "author", attributes: ["id", "fullName", "role"] },
+                {
+                    model: AnnouncementCommentReaction,
+                    as: "reactions",
+                    attributes: ["userId"]
+                }
+            ],
             order: [["createdAt", "ASC"]]
         })
     ]);
@@ -369,13 +474,25 @@ exports.getAnnouncementActivity = async (req, res) => {
         });
     }
     res.json({
-        viewers: views.filter((view) => view.user).map((view) => ({
+        viewers: result.access.isManager ? views.filter((view) => view.user).map((view) => ({
             id: view.user.id,
             fullName: view.user.fullName,
             roleName: rolesByStudent.get(view.userId) || null,
             viewedAt: view.viewedAt
-        })),
-        reactions: [...grouped].map(([emoji, users]) => ({ emoji, users }))
+        })) : [],
+        reactions: [...grouped].map(([emoji, users]) => ({ emoji, users })),
+        myReaction: reactions.find((reaction) => reaction.userId === req.user.id)?.emoji || null,
+        comments: comments.map((comment) => ({
+            id: comment.id,
+            announcementId: comment.announcementId,
+            authorId: comment.authorId,
+            parentCommentId: comment.parentCommentId,
+            body: comment.body,
+            createdAt: comment.createdAt,
+            author: comment.author,
+            likeCount: comment.reactions.length,
+            likedByMe: comment.reactions.some((reaction) => reaction.userId === req.user.id)
+        }))
     });
 };
 
@@ -693,10 +810,32 @@ exports.markAllNotificationsRead = async (req, res) => {
 exports.listCalendarEvents = async (req, res) => {
     const access = await courseParticipant(req.params.courseId, req.user);
     if (access.status) return res.status(access.status).json({ message: access.message });
-    res.json(await CalendarEvent.findAll({
+    const storedEvents = await CalendarEvent.findAll({
         where: { courseId: access.course.id },
         order: [["startsAt", "ASC"]]
+    });
+    const from = new Date();
+    const to = new Date(from.getTime() + 90 * 24 * 60 * 60 * 1000);
+    const recurringEvents = getOccurrences(
+        access.course,
+        from,
+        to,
+        storedEvents.filter((event) => event.occurrenceDate)
+    ).map((event) => ({
+        ...event,
+        eventType: event.type
     }));
+    const recurringEventIds = new Set(recurringEvents.map((event) => event.id));
+    const movedEvents = storedEvents.filter((event) =>
+        event.occurrenceDate && event.status === "rescheduled" &&
+        !recurringEventIds.has(event.id) &&
+        new Date(event.startsAt) >= from && new Date(event.startsAt) < to
+    );
+    res.json([
+        ...storedEvents.filter((event) => !event.occurrenceDate),
+        ...recurringEvents,
+        ...movedEvents
+    ].sort((left, right) => new Date(left.startsAt) - new Date(right.startsAt)));
 };
 
 exports.listMyCalendar = async (req, res) => {
@@ -715,12 +854,12 @@ exports.listMyCalendar = async (req, res) => {
         });
         courses = await Course.findAll({
             where: { id: { [Op.in]: enrollments.map((enrollment) => enrollment.courseId) } },
-            attributes: ["id", "title"]
+            attributes: ["id", "title", "classDays", "classStartTime", "classEndTime", "classTimeZone", "startDate", "endDate"]
         });
     } else {
         courses = await Course.findAll({
             where: { lecturerId: req.user.id },
-            attributes: ["id", "title"]
+            attributes: ["id", "title", "classDays", "classStartTime", "classEndTime", "classTimeZone", "startDate", "endDate"]
         });
     }
 
@@ -731,12 +870,10 @@ exports.listMyCalendar = async (req, res) => {
         CalendarEvent.findAll({
             where: {
                 courseId: { [Op.in]: courseIds },
-                ...(from || to ? {
-                    startsAt: {
-                        ...(from ? { [Op.gte]: from } : {}),
-                        ...(to ? { [Op.lte]: to } : {})
-                    }
-                } : {})
+                ...(from || to ? { [Op.or]: [
+                    { occurrenceDate: { ...(from ? { [Op.gte]: from.toISOString().slice(0, 10) } : {}), ...(to ? { [Op.lte]: to.toISOString().slice(0, 10) } : {}) } },
+                    { startsAt: { ...(from ? { [Op.gte]: from } : {}), ...(to ? { [Op.lt]: to } : {}) } }
+                ] } : {})
             },
             order: [["startsAt", "ASC"]]
         }),
@@ -754,9 +891,35 @@ exports.listMyCalendar = async (req, res) => {
         })
     ]);
 
+    const recurringEvents = courses.flatMap((course) => getOccurrences(
+        course,
+        from || new Date(),
+        to || new Date(Date.now() + 90 * 24 * 60 * 60 * 1000),
+        events.filter((event) => event.courseId === course.id && event.occurrenceDate)
+    ));
+    const recurringEventIds = new Set(recurringEvents.map((event) => event.id));
+    const rescheduledOccurrences = events.filter((event) =>
+        event.occurrenceDate && event.status === "rescheduled" &&
+        !recurringEventIds.has(event.id) &&
+        (!from || new Date(event.startsAt) >= from) &&
+        (!to || new Date(event.startsAt) < to)
+    ).map((event) => ({
+        id: event.id,
+        type: "class",
+        title: event.title,
+        description: event.description,
+        startsAt: event.startsAt,
+        endsAt: event.endsAt,
+        courseId: event.courseId,
+        courseTitle: courseTitles.get(event.courseId),
+        status: event.status,
+        recurring: true,
+        scheduledDate: event.occurrenceDate
+    }));
     const agenda = [
-        ...events.map((event) => ({
+        ...events.filter((event) => !event.occurrenceDate && (!from || new Date(event.startsAt) >= from) && (!to || new Date(event.startsAt) < to)).map((event) => ({
             id: `event-${event.id}`,
+            eventId: event.id,
             type: event.eventType,
             title: event.title,
             description: event.description,
@@ -764,8 +927,11 @@ exports.listMyCalendar = async (req, res) => {
             endsAt: event.endsAt,
             courseId: event.courseId,
             courseTitle: courseTitles.get(event.courseId),
-            assessmentId: event.assessmentId
+            assessmentId: event.assessmentId,
+            status: event.status
         })),
+        ...recurringEvents,
+        ...rescheduledOccurrences,
         ...assignments.map((assignment) => ({
             id: `assignment-${assignment.id}`,
             type: "assignment",
@@ -793,7 +959,7 @@ exports.createCalendarEvent = async (req, res) => {
     const access = await managerAccess(req.params.courseId, req.user, res);
     if (!access) return;
     const { title, description, startsAt, endsAt, eventType = "event" } = req.body;
-    const validTypes = ["event", "class", "exam", "deadline", "assessment", "quiz", "other"];
+    const validTypes = ["event", "class", "exam", "deadline", "assessment", "quiz", "no-school", "other"];
     let assessment = null;
     if (["assessment", "quiz"].includes(eventType)) {
         assessment = await QuizAssessment.findOne({
@@ -803,12 +969,14 @@ exports.createCalendarEvent = async (req, res) => {
     }
     if (!nonEmpty(title) || !validEventTimes(startsAt, endsAt) ||
         !validTypes.includes(eventType) ||
-        (description != null && typeof description !== "string")) {
+        (description != null && typeof description !== "string") ||
+        (eventType === "no-school" && !nonEmpty(description, 20000))) {
         return res.status(400).json({ message: "Valid title, start, and end times are required" });
     }
     const event = await sequelize.transaction(async (transaction) => {
         const created = await CalendarEvent.create({
-            courseId: access.course.id, createdById: req.user.id, eventType, title: title.trim(),
+            courseId: access.course.id, createdById: req.user.id, eventType,
+            title: eventType === "no-school" ? "No school" : title.trim(),
             description: description?.trim() || null, startsAt: new Date(startsAt), endsAt: new Date(endsAt),
             assessmentId: assessment?.id || null
         }, { transaction });
@@ -826,6 +994,66 @@ exports.createCalendarEvent = async (req, res) => {
     res.status(201).json(event);
 };
 
+exports.updateClassOccurrence = async (req, res) => {
+    const access = await managerAccess(req.params.courseId, req.user, res);
+    if (!access) return;
+    const date = req.params.date;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !access.course.classStartTime ||
+        !Array.isArray(access.course.classDays)) {
+        return res.status(400).json({ message: "This course has no valid recurring class schedule" });
+    }
+    const [year, month, day] = date.split("-").map(Number);
+    const scheduledDate = new Date(Date.UTC(year, month - 1, day));
+    if (Number.isNaN(scheduledDate.getTime()) || scheduledDate.toISOString().slice(0, 10) !== date ||
+        !access.course.classDays.includes(scheduledDate.getUTCDay())) {
+        return res.status(400).json({ message: "Choose a scheduled class date" });
+    }
+    const status = req.body.status;
+    if (!["cancelled", "rescheduled"].includes(status)) {
+        return res.status(400).json({ message: "Choose cancelled or rescheduled for this class" });
+    }
+    const zone = access.course.classTimeZone || "UTC";
+    const originalStart = dateTimeInZone(date, access.course.classStartTime, zone);
+    const originalEnd = dateTimeInZone(date, access.course.classEndTime, zone);
+    const startsAt = status === "cancelled" ? originalStart : new Date(req.body.startsAt);
+    const endsAt = status === "cancelled" ? originalEnd : new Date(req.body.endsAt);
+    if (Number.isNaN(startsAt.getTime()) || Number.isNaN(endsAt.getTime()) || endsAt <= startsAt) {
+        return res.status(400).json({ message: "Enter valid replacement class start and end times" });
+    }
+    const details = req.body.description;
+    const title = req.body.title;
+    if ((details != null && typeof details !== "string") ||
+        (title !== undefined && !nonEmpty(title))) {
+        return res.status(400).json({ message: "Enter a valid class title and details" });
+    }
+    const event = await sequelize.transaction(async (transaction) => {
+        const [record] = await CalendarEvent.findOrCreate({
+            where: { courseId: access.course.id, occurrenceDate: date },
+            defaults: {
+                courseId: access.course.id,
+                createdById: req.user.id,
+                eventType: "class",
+                occurrenceDate: date,
+                status,
+                title: `${access.course.title} class`,
+                description: details?.trim() || null,
+                startsAt,
+                endsAt
+            },
+            transaction
+        });
+        await record.update({
+            status,
+            title: nonEmpty(title) ? title.trim() : record.title,
+            description: details?.trim() || null,
+            startsAt,
+            endsAt
+        }, { transaction });
+        return record;
+    });
+    res.json(event);
+};
+
 exports.updateCalendarEvent = async (req, res) => {
     const event = await CalendarEvent.findByPk(req.params.id);
     if (!event) return res.status(404).json({ message: "Calendar event not found" });
@@ -833,11 +1061,14 @@ exports.updateCalendarEvent = async (req, res) => {
     if (!access) return;
     const startsAt = req.body.startsAt ?? event.startsAt;
     const endsAt = req.body.endsAt ?? event.endsAt;
-    const validTypes = ["event", "class", "exam", "deadline", "assessment", "quiz", "other"];
+    const validTypes = ["event", "class", "exam", "deadline", "assessment", "quiz", "no-school", "other"];
+    const nextEventType = req.body.eventType ?? event.eventType;
+    const nextDescription = req.body.description ?? event.description;
     if (!validEventTimes(startsAt, endsAt) ||
         (req.body.eventType !== undefined && !validTypes.includes(req.body.eventType)) ||
         (req.body.title !== undefined && !nonEmpty(req.body.title)) ||
-        (req.body.description !== undefined && req.body.description !== null && typeof req.body.description !== "string")) {
+        (req.body.description !== undefined && req.body.description !== null && typeof req.body.description !== "string") ||
+        (nextEventType === "no-school" && !nonEmpty(nextDescription, 20000))) {
         return res.status(400).json({ message: "Invalid calendar event details" });
     }
     if (["assessment", "quiz"].includes(req.body.eventType ?? event.eventType)) {
@@ -846,7 +1077,8 @@ exports.updateCalendarEvent = async (req, res) => {
         });
         if (!assessment) return res.status(400).json({ message: "This calendar item must be linked to an assessment in its course" });
     }
-    if (req.body.title !== undefined) event.title = req.body.title.trim();
+    if (nextEventType === "no-school") event.title = "No school";
+    else if (req.body.title !== undefined) event.title = req.body.title.trim();
     if (req.body.eventType !== undefined) event.eventType = req.body.eventType;
     if (req.body.description !== undefined) event.description = req.body.description?.trim() || null;
     event.startsAt = startsAt;

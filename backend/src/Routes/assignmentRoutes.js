@@ -42,6 +42,13 @@ router.patch(
     assignmentController.markAssignmentRead
 );
 
+router.patch(
+    "/submissions/:id/view",
+    authMiddleware,
+    requireRole("lecturer"),
+    assignmentController.markSubmissionViewed
+);
+
 router.get(
     "/course/:courseId/submissions",
     authMiddleware,

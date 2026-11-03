@@ -1,6 +1,7 @@
 const { Op } = require("sequelize");
 const Assignment = require("../models/Assignment");
 const AssignmentRead = require("../models/AssignmentRead");
+const SubmissionRead = require("../models/SubmissionRead");
 const Submission = require("../models/Submission");
 const Enrollment = require("../models/Enrollment");
 const Course = require("../models/Course");
@@ -26,11 +27,13 @@ const assignmentDeadline = (value) => {
 exports.createAssignment = async (req, res) => {
     try {
         const { title, description, dueDate, courseId } = req.body;
+        const workType = req.body.workType || "assignment";
         const parsedDueDate = assignmentDeadline(dueDate);
 
         if (typeof title !== "string" || !title.trim() ||
             typeof description !== "string" || !description.trim() ||
-            !dueDate || !Number.isSafeInteger(Number(courseId)) || Number(courseId) <= 0 || !parsedDueDate) {
+            !dueDate || !Number.isSafeInteger(Number(courseId)) || Number(courseId) <= 0 || !parsedDueDate ||
+            !["assignment", "classwork"].includes(workType)) {
             await discardUpload(req.file);
             return res.status(400).json({ message: "All assignment fields are required" });
         }
@@ -55,6 +58,7 @@ exports.createAssignment = async (req, res) => {
                 title: title.trim(),
                 description: description.trim(),
                 dueDate: parsedDueDate,
+                workType,
                 courseId,
                 fileUrl: req.file ? `/uploads/${req.file.filename}` : null,
                 fileName: req.file?.originalname || null
@@ -182,7 +186,13 @@ exports.getMyAssignments = async (req, res) => {
                     as: "submissions",
                     where: { studentId: req.user.id },
                     required: false,
-                    attributes: ["id", "studentId", "assignmentId", "fileUrl", "fileName", "answerText", "grade", "feedback", "createdAt"]
+                    attributes: ["id", "studentId", "assignmentId", "fileUrl", "fileName", "answerText", "createdAt"],
+                    include: [{
+                        model: SubmissionRead,
+                        as: "lecturerViews",
+                        attributes: ["viewedAt"],
+                        required: false
+                    }]
                 },
                 {
                     model: AssignmentRead,
@@ -232,6 +242,26 @@ exports.markAssignmentRead = async (req, res) => {
     res.json({ readAt: read.readAt });
 };
 
+exports.markSubmissionViewed = async (req, res) => {
+    const submission = await Submission.findByPk(req.params.id, {
+        include: [{
+            model: Assignment,
+            as: "assignment",
+            include: [{ model: Course, as: "course", attributes: ["id", "lecturerId"] }]
+        }]
+    });
+    if (!submission) return res.status(404).json({ message: "Submission not found" });
+    const course = submission.assignment?.course;
+    if (!course || course.lecturerId !== req.user.id) {
+        return res.status(403).json({ message: "Only the course lecturer can mark this submission viewed" });
+    }
+    const [view] = await SubmissionRead.findOrCreate({
+        where: { submissionId: submission.id, lecturerId: req.user.id },
+        defaults: { submissionId: submission.id, lecturerId: req.user.id, viewedAt: new Date() }
+    });
+    res.json({ viewedAt: view.viewedAt });
+};
+
 exports.getCourseSubmissions = async (req, res) => {
     try {
         const course = await Course.findByPk(req.params.courseId);
@@ -257,7 +287,7 @@ exports.getCourseSubmissions = async (req, res) => {
                         {
                             model: User,
                             as: "student",
-                            attributes: ["id", "fullName", "email"]
+                            attributes: ["id", "fullName", "email", "matNumber"]
                         }
                     ]
                 }
@@ -357,6 +387,7 @@ exports.gradeSubmission = async (req, res) => {
 exports.getMySubmissions = async (req, res) => {
     const submissions = await Submission.findAll({
         where: { studentId: req.user.id },
+        attributes: ["id", "studentId", "assignmentId", "fileUrl", "fileName", "answerText", "createdAt"],
         include: [{
             model: Assignment,
             as: "assignment",
@@ -412,7 +443,7 @@ exports.submitAssignment = async (req, res) => {
             return res.status(409).json({ message: "You have already submitted this assignment." });
         }
         if (req.file) await validateMaterialFile(req.file);
-        const submission = await Submission.create({
+        await Submission.create({
             studentId: req.user.id,
             assignmentId,
             fileUrl: req.file ? `/uploads/${req.file.filename}` : null,
@@ -420,10 +451,7 @@ exports.submitAssignment = async (req, res) => {
             answerText: answerText?.trim() || null
         });
 
-        res.status(201).json({
-            message: "Assignment submitted successfully",
-            submission
-        });
+        res.status(201).json({ message: "Assignment submitted successfully" });
 
     } catch (error) {
         await discardUpload(req.file);

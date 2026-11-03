@@ -1,5 +1,4 @@
 require("../config/env");
-const Anthropic = require("@anthropic-ai/sdk");
 
 exports.askAI = async (req, res) => {
     try {
@@ -8,8 +7,8 @@ exports.askAI = async (req, res) => {
             return res.status(400).json({ message: "Enter a message of at most 4,000 characters" });
         }
 
-        if (!process.env.ANTHROPIC_API_KEY ||
-            process.env.ANTHROPIC_API_KEY === "your_anthropic_api_key") {
+        if (!process.env.OPENAI_API_KEY ||
+            process.env.OPENAI_API_KEY === "your_openai_api_key") {
             return res.status(503).json({ message: "The AI assistant is not configured" });
         }
 
@@ -21,10 +20,8 @@ exports.askAI = async (req, res) => {
             : "";
         const isStaff = req.user.role === "lecturer";
 
-        let systemPrompt;
-
-        if (isStaff) {
-            systemPrompt = `You are an AI assistant for lecturers on SmartCampus LMS.
+        const systemPrompt = isStaff
+            ? `You are an AI assistant for lecturers on SmartCampus LMS.
 You help lecturers create educational quiz questions for their courses.
 Course: "${courseName || "General"}"
 Materials: "${lessonContent || "None provided"}"
@@ -37,9 +34,8 @@ C: [option C]
 D: [option D]
 ANSWER: [correct letter]
 
-Generate clear educational questions based only on the course materials.`;
-        } else {
-            systemPrompt = `You are an AI learning assistant for students on SmartCampus LMS.
+Generate clear educational questions based only on the course materials.`
+            : `You are an AI learning assistant for students on SmartCampus LMS.
 The student is studying: "${courseName || "their course"}".
 Course material available: "${lessonContent || "No materials uploaded yet"}".
 
@@ -50,24 +46,50 @@ STRICT RULES:
 4. Guide with explanations and hints only.
 5. If question is unrelated to course material say: "I can only help with topics from this course."
 Be friendly, clear and educational.`;
-        }
 
-        const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-        const response = await client.messages.create({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 1024,
-            system: systemPrompt,
-            messages: [{ role: "user", content: message.trim() }]
+        const response = await fetch("https://api.openai.com/v1/chat/completions", {
+            method: "POST",
+            headers: {
+                Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+                model: "gpt-4o-mini",
+                max_tokens: 1024,
+                messages: [
+                    { role: "system", content: systemPrompt },
+                    { role: "user", content: message.trim() }
+                ]
+            }),
+            redirect: "error",
+            signal: AbortSignal.timeout(30000)
         });
 
-        const reply = response.content.find((block) => block.type === "text")?.text;
+        if (!response.ok) {
+            console.error(`OpenAI request failed with status ${response.status}`);
+            const message = response.status === 401
+                ? "OpenAI rejected the API key. Check OPENAI_API_KEY in backend/.env and restart the backend."
+                : response.status === 403
+                    ? "The OpenAI project or key does not have access to the requested model."
+                    : response.status === 429
+                        ? "OpenAI quota or rate limit reached. Check the project's billing and usage."
+                        : response.status === 404
+                            ? "The configured OpenAI model is unavailable to this project."
+                            : "The AI assistant could not respond";
+            return res.status(response.status === 429 ? 503 : 502).json({
+                message
+            });
+        }
+
+        const result = await response.json();
+        const reply = result.choices?.[0]?.message?.content;
         if (!reply) {
-            console.error("AI provider returned no text response");
+            console.error("OpenAI returned no text response");
             return res.status(502).json({ message: "The AI assistant returned an empty response" });
         }
         res.json({ reply });
     } catch (error) {
-        console.error("AI request failed:", error);
+        console.error("OpenAI request failed:", error.message);
         res.status(502).json({ message: "The AI assistant could not respond" });
     }
 };

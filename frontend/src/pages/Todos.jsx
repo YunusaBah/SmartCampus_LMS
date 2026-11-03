@@ -59,7 +59,6 @@ const Todos = () => {
                     <p className="eyebrow">YOUR COURSEWORK</p>
                     <h1>To-do list</h1>
                 </div>
-                <span className="grades-header-icon"><FaClipboardList /></span>
             </header>
             {activeStatus && <Link className="todo-board-link" to="/todo">View all to-do columns</Link>}
             {loading ? <p className="dashboard-loading" role="status">Loading your to-do list...</p> : error ? (

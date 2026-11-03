@@ -1,33 +1,34 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 import Layout from "./components/Layout";
+import FloatingChatHost from "./components/FloatingChatHost";
 import ProtectedRoute from "./components/ProtectedRoute";
 import PublicRoute from "./components/PublicRoute";
 import RoleRoute from "./components/RoleRoute";
 
-import Login from "./pages/Login";
-import Register from "./pages/Register";
-import Dashboard from "./pages/Dashboard";
-import Courses from "./pages/Courses";
-import CourseDetail from "./pages/CourseDetail";
-import MyCourses from "./pages/MyCourses";
-import Assignments from "./pages/Assignments";
-import Grades from "./pages/Grades";
-import JoinClass from "./pages/JoinClass";
-import Students from "./pages/Students";
-import Settings from "./pages/Settings";
-import HelpFeedback from "./pages/HelpFeedback";
-import Calendar from "./pages/Calendar";
-import Announcements from "./pages/Announcements";
-import Messages from "./pages/Messages";
-import Certificates from "./pages/Certificates";
-import Todos from "./pages/Todos";
-import Materials from "./pages/Materials";
-import Quizzes from "./pages/Quizzes";
 import { readDefaultPage, readReducedMotion } from "./utils/settingsPreferences";
 
 import "./styles/global.css";
+
+const Login = lazy(() => import("./pages/Login"));
+const Register = lazy(() => import("./pages/Register"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Courses = lazy(() => import("./pages/Courses"));
+const CourseDetail = lazy(() => import("./pages/CourseDetail"));
+const MyCourses = lazy(() => import("./pages/MyCourses"));
+const Assignments = lazy(() => import("./pages/Assignments"));
+const Grades = lazy(() => import("./pages/Grades"));
+const JoinClass = lazy(() => import("./pages/JoinClass"));
+const Students = lazy(() => import("./pages/Students"));
+const Settings = lazy(() => import("./pages/Settings"));
+const HelpFeedback = lazy(() => import("./pages/HelpFeedback"));
+const Calendar = lazy(() => import("./pages/Calendar"));
+const Announcements = lazy(() => import("./pages/Announcements"));
+const Messages = lazy(() => import("./pages/Messages"));
+const Certificates = lazy(() => import("./pages/Certificates"));
+const Materials = lazy(() => import("./pages/Materials"));
+const Quizzes = lazy(() => import("./pages/Quizzes"));
 
 const readAccountId = () => {
     try {
@@ -92,25 +93,27 @@ function App() {
 
     return (
         <BrowserRouter>
-            <Routes>
-                <Route element={<PublicRoute />}>
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/register" element={<Register />} />
-                </Route>
+            <Suspense fallback={<div className="page-content"><p>Loading...</p></div>}>
+                <Routes>
+                    <Route path="/invite" element={<JoinClass invitationMode />} />
+                    <Route element={<PublicRoute />}>
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/register" element={<Register />} />
+                    </Route>
 
-                <Route element={<ProtectedRoute />}>
-                    <Route
-                        path="/"
-                        element={
-                            <Layout
-                                open={sidebarOpen}
-                                toggle={toggleSidebar}
-                                onClose={closeSidebar}
-                                theme={theme}
-                                toggleTheme={() => setTheme(current => current === "dark" ? "light" : "dark")}
-                            />
-                        }
-                    >
+                    <Route element={<ProtectedRoute />}>
+                        <Route
+                            path="/"
+                            element={
+                                <Layout
+                                    open={sidebarOpen}
+                                    toggle={toggleSidebar}
+                                    onClose={closeSidebar}
+                                    theme={theme}
+                                    toggleTheme={() => setTheme(current => current === "dark" ? "light" : "dark")}
+                                />
+                            }
+                        >
                         <Route index element={<Navigate to={readDefaultPage(accountId)} replace />} />
                         <Route path="dashboard" element={<Dashboard />} />
                         <Route path="courses" element={<Courses />} />
@@ -139,7 +142,7 @@ function App() {
                             </RoleRoute>
                         } />
                         <Route path="grades" element={
-                            <RoleRoute roles={["student"]}>
+                            <RoleRoute roles={["student", "lecturer"]}>
                                 <Grades />
                             </RoleRoute>
                         } />
@@ -150,16 +153,8 @@ function App() {
                                 <Messages />
                             </RoleRoute>
                         } />
-                        <Route path="todo" element={
-                            <RoleRoute roles={["student"]}>
-                                <Todos />
-                            </RoleRoute>
-                        } />
-                        <Route path="todo/:status" element={
-                            <RoleRoute roles={["student"]}>
-                                <Todos />
-                            </RoleRoute>
-                        } />
+                        <Route path="todo" element={<Navigate to="/assignments" replace />} />
+                        <Route path="todo/:status" element={<Navigate to="/assignments" replace />} />
                         <Route path="certificates" element={
                             <RoleRoute roles={["student"]}>
                                 <Certificates />
@@ -197,11 +192,13 @@ function App() {
                                 </RoleRoute>
                             } />
                         ))}
+                        </Route>
                     </Route>
-                </Route>
 
-                <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
+                    <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+            </Suspense>
+            <FloatingChatHost />
         </BrowserRouter>
     );
 }

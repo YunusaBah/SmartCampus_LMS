@@ -16,6 +16,14 @@ const publicQuestion = (question) => {
     return item;
 };
 
+const studentAttemptSummary = (attempt) => ({
+    id: attempt.id,
+    assessmentId: attempt.assessmentId,
+    startedAt: attempt.startedAt,
+    deadlineAt: attempt.deadlineAt,
+    submittedAt: attempt.submittedAt
+});
+
 const numberValue = (value) => Number(value || 0);
 
 const finalizeAttempt = async (attempt, transaction, submittedAt = new Date()) => {
@@ -107,30 +115,30 @@ exports.createAssessment = async (req, res) => {
         !Array.isArray(questions) || questions.length < 1 || questions.length > 100) {
         return res.status(400).json({ message: "Assessment details and 1-100 valid questions are required" });
     }
+    if (questions.some((question) => question?.questionType === "THEORY")) {
+        return res.status(400).json({ message: "Timed assessments support multiple-choice questions only" });
+    }
     for (const question of questions) {
         if (!question || typeof question !== "object" || Array.isArray(question)) {
             return res.status(400).json({ message: "Each assessment question must be an object" });
         }
-        if (question.questionType != null && !["MCQ", "THEORY"].includes(question.questionType)) {
-            return res.status(400).json({ message: "Question type must be MCQ or THEORY" });
+        if (question.questionType != null && question.questionType !== "MCQ") {
+            return res.status(400).json({ message: "Timed assessments support multiple-choice questions only" });
         }
-        const questionType = question.questionType === "THEORY" ? "THEORY" : "MCQ";
         const marks = question.marks == null ? 1 : Number(question.marks);
         if (!validText(question.question) || !Number.isFinite(marks) || marks <= 0 || marks > 10000) {
             return res.status(400).json({ message: "Each question requires text and positive marks" });
         }
-        if (questionType === "MCQ") {
-            const options = ["A", "B", "C", "D"]
-                .map((letter) => [letter, question[`option${letter}`]])
-                .filter(([, option]) => validText(option));
-            if (options.some(([, option]) => option.trim().length > 255)) {
-                return res.status(400).json({ message: "Answer options cannot exceed 255 characters" });
-            }
-            if (options.length < 2 || typeof question.correctAnswer !== "string" ||
-                !/^[A-D]$/i.test(question.correctAnswer) ||
-                !options.some(([letter]) => letter === question.correctAnswer.toUpperCase())) {
-                return res.status(400).json({ message: "Each multiple-choice question requires at least two options and a correct answer" });
-            }
+        const options = ["A", "B", "C", "D"]
+            .map((letter) => [letter, question[`option${letter}`]])
+            .filter(([, option]) => validText(option));
+        if (options.some(([, option]) => option.trim().length > 255)) {
+            return res.status(400).json({ message: "Answer options cannot exceed 255 characters" });
+        }
+        if (options.length < 2 || typeof question.correctAnswer !== "string" ||
+            !/^[A-D]$/i.test(question.correctAnswer) ||
+            !options.some(([letter]) => letter === question.correctAnswer.toUpperCase())) {
+            return res.status(400).json({ message: "Each multiple-choice question requires at least two options and a correct answer" });
         }
     }
     const access = await getCourseAccess(courseId, req.user);
@@ -151,8 +159,8 @@ exports.createAssessment = async (req, res) => {
             optionB: validText(question.optionB) ? question.optionB.trim() : null,
             optionC: validText(question.optionC) ? question.optionC.trim() : null,
             optionD: validText(question.optionD) ? question.optionD.trim() : null,
-            correctAnswer: question.questionType === "THEORY" ? null : question.correctAnswer.toUpperCase(),
-            questionType: question.questionType === "THEORY" ? "THEORY" : "MCQ",
+            correctAnswer: question.correctAnswer.toUpperCase(),
+            questionType: "MCQ",
             marks: question.marks == null ? 1 : Number(question.marks),
             courseId: access.course.id,
             assessmentId: assessment.id
@@ -360,7 +368,7 @@ exports.saveAnswers = async (req, res) => {
         if (attempt.submittedAt) return { status: 409, message: "Attempt has already been submitted" };
         if (Date.now() >= new Date(attempt.deadlineAt).getTime()) {
             await finalizeAttempt(attempt, transaction, attempt.deadlineAt);
-            return { status: 409, message: "The assessment deadline has passed", attempt };
+            return { status: 409, message: "The assessment deadline has passed" };
         }
 
         const answerError = await persistAttemptAnswers(attempt, req.body.answers, transaction);
@@ -368,10 +376,7 @@ exports.saveAnswers = async (req, res) => {
         return { attempt };
     });
     if (result.status) {
-        return res.status(result.status).json({
-            message: result.message,
-            ...(result.attempt ? { attempt: result.attempt } : {})
-        });
+        return res.status(result.status).json({ message: result.message });
     }
     res.json({ message: "Answers saved", attempt: result.attempt });
 };
@@ -401,19 +406,15 @@ exports.submitAttempt = async (req, res) => {
             if (answerError) return answerError;
         }
         const finalized = await finalizeAttempt(attempt, transaction);
-        return { attempt: finalized.attempt, questions: finalized.questions };
+        return { attempt: finalized.attempt };
     });
-    if (result.status) return res.status(result.status).json({ message: result.message });
-    res.json({
-        message: "Assessment submitted",
-        attempt: result.attempt,
-        results: result.questions.filter((question) => question.questionType !== "THEORY").map((question) => ({
-            questionId: question.id,
-            selectedAnswer: result.attempt.answers[String(question.id)] || null,
-            correctAnswer: question.correctAnswer,
-            correct: result.attempt.answers[String(question.id)] === question.correctAnswer.toUpperCase()
-        }))
-    });
+    if (result.status) {
+        return res.status(result.status).json({
+            message: result.message,
+            ...(result.attempt ? { attempt: studentAttemptSummary(result.attempt) } : {})
+        });
+    }
+    res.json({ message: "Assessment submitted" });
 };
 
 exports.getMyAttempt = async (req, res) => {
@@ -435,25 +436,7 @@ exports.getMyAttempt = async (req, res) => {
             order: [["startedAt", "DESC"]]
         });
         if (!attempt) return res.status(404).json({ message: "No assessment attempt found" });
-        const questions = await Quiz.findAll({
-            where: { assessmentId: assessment.id },
-            attributes: ["id", "correctAnswer", "questionType"],
-            order: [["id", "ASC"]]
-        });
-        const theoryAnswers = await loadAttemptAnswers(attempt.id);
-        return res.json({
-            attempt,
-            questions: questions.map((question) => ({
-                id: question.id,
-                selectedAnswer: attempt.answers[String(question.id)] || null,
-                studentAnswer: theoryAnswers[String(question.id)] || "",
-                questionType: question.questionType,
-                ...(question.questionType === "THEORY" ? {} : {
-                    correctAnswer: question.correctAnswer,
-                    correct: attempt.answers[String(question.id)] === question.correctAnswer?.toUpperCase()
-                })
-            }))
-        });
+        return res.json({ attempt: studentAttemptSummary(attempt), questions: [] });
     }
     if (Date.now() >= new Date(attempt.deadlineAt).getTime()) {
         const completed = await sequelize.transaction(async (transaction) => {
@@ -464,7 +447,10 @@ exports.getMyAttempt = async (req, res) => {
             if (locked.submittedAt) return locked;
             return (await finalizeAttempt(locked, transaction, locked.deadlineAt)).attempt;
         });
-        return res.status(409).json({ message: "The assessment deadline has passed", attempt: completed });
+        return res.status(409).json({
+            message: "The assessment deadline has passed",
+            attempt: studentAttemptSummary(completed)
+        });
     }
     res.json({
         attempt,

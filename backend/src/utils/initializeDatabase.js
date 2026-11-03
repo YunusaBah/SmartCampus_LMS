@@ -1,6 +1,7 @@
 const { sequelize, connectDB } = require("../config/db");
 require("../models/associations");
 const runMigrations = require("./runMigrations");
+const runChatSecurity = require("./chatSecurity");
 
 let databaseInitialization;
 
@@ -10,6 +11,7 @@ module.exports = () => {
             await connectDB();
             await runMigrations();
             await sequelize.sync();
+            await runChatSecurity();
             console.log("Database synced");
         })().catch((error) => {
             databaseInitialization = undefined;

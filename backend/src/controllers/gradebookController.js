@@ -30,7 +30,7 @@ exports.getGradebook = async (req, res) => {
     const [enrollments, assignments, questions, results, assessmentAttempts, assessments] = await Promise.all([
         Enrollment.findAll({
             where: { courseId: course.id },
-            include: [{ model: User, as: "student", attributes: ["id", "fullName", "email"] }],
+            include: [{ model: User, as: "student", attributes: ["id", "fullName", "email", "matNumber"] }],
             order: [["createdAt", "ASC"]]
         }),
         Assignment.findAll({
@@ -42,7 +42,7 @@ exports.getGradebook = async (req, res) => {
         QuizResult.findAll({
             include: [
                 { model: Quiz, as: "quiz", where: { courseId: course.id }, attributes: ["id", "question"] },
-                { model: User, as: "student", attributes: ["id", "fullName"] }
+                { model: User, as: "student", attributes: ["id", "fullName", "matNumber"] }
             ],
             order: [["createdAt", "DESC"]]
         }),
@@ -50,7 +50,7 @@ exports.getGradebook = async (req, res) => {
             where: { submittedAt: { [Op.ne]: null } },
             include: [
                 { model: QuizAssessment, as: "assessment", where: { courseId: course.id }, attributes: ["id", "title"] },
-                { model: User, as: "student", attributes: ["id", "fullName"] }
+                { model: User, as: "student", attributes: ["id", "fullName", "matNumber"] }
             ],
             order: [["submittedAt", "DESC"]]
         }),
@@ -68,6 +68,7 @@ exports.getGradebook = async (req, res) => {
             assignments: assignments.map((assignment) => ({
                 assignmentId: assignment.id,
                 title: assignment.title,
+                workType: assignment.workType,
                 submission: assignment.submissions.find((submission) => submission.studentId === student.id) || null
             })),
             quizResults: results.filter((result) => result.studentId === student.id)
@@ -78,7 +79,7 @@ exports.getGradebook = async (req, res) => {
     });
     res.json({
         course: { id: course.id, title: course.title },
-        assignmentColumns: assignments.map(({ id, title, dueDate }) => ({ id, title, dueDate })),
+        assignmentColumns: assignments.map(({ id, title, dueDate, workType }) => ({ id, title, dueDate, workType })),
         legacyQuizQuestions: questions.map(({ id, question }) => ({ id, question })),
         assessmentColumns: assessments,
         students

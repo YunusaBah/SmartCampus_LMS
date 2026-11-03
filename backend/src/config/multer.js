@@ -33,7 +33,8 @@ const allowedTypes = new Map([
     [".jpg", ["image/jpeg"]],
     [".jpeg", ["image/jpeg"]],
     [".gif", ["image/gif"]],
-    [".webp", ["image/webp"]]
+    [".webp", ["image/webp"]],
+    [".zip", ["application/zip", "application/x-zip-compressed", "application/octet-stream"]]
 ]);
 
 module.exports = multer({

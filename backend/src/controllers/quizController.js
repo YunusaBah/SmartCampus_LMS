@@ -112,15 +112,11 @@ exports.submitQuiz = async (req, res) => {
                 selectedAnswer: selectedAnswer.toUpperCase(),
                 score
             }, { transaction });
-            return { result, score };
+            return { result };
         });
 
         if (outcome.status) return res.status(outcome.status).json({ message: outcome.message });
-        res.json({
-            message: "Quiz submitted",
-            result: outcome.result,
-            passed: outcome.score === 1
-        });
+        res.json({ message: "Quiz submitted" });
 
     } catch (error) {
         console.error("Failed to submit quiz:", error);

@@ -15,6 +15,18 @@ router.post(
     lessonController.createLesson
 );
 
+router.get(
+    "/:id/notes",
+    authMiddleware,
+    lessonController.getPrivateNote
+);
+
+router.put(
+    "/:id/notes",
+    authMiddleware,
+    lessonController.savePrivateNote
+);
+
 router.patch(
     "/:id",
     authMiddleware,
@@ -48,6 +60,13 @@ router.post(
     authMiddleware,
     requireRole("student"),
     lmsController.completeLesson
+);
+
+router.patch(
+    "/:lessonId/progress",
+    authMiddleware,
+    requireRole("student"),
+    lmsController.updateLessonReadingProgress
 );
 
 module.exports = router;

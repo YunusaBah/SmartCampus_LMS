@@ -1,34 +1,30 @@
 import { Link, NavLink, useLocation } from "react-router-dom";
-import {
-    FaBookOpen,
-    FaChartBar,
-    FaClipboardList,
-    FaCog,
-    FaHome,
-    FaCalendarAlt,
-    FaBell,
-    FaUsers,
-    FaQuestionCircle,
-    FaLifeRing
-} from "react-icons/fa";
+import { FaUsers } from "react-icons/fa";
 import { useAuth } from "../hooks/useAuth";
+
+const ModuleLogo = ({ name }) => (
+    <img src={`/project-icons/${name}.png`} alt="" aria-hidden="true" />
+);
 
 const Sidebar = ({ open, onClose }) => {
     const location = useLocation();
     const { isStaff } = useAuth();
     const courseId = location.pathname.match(/^\/courses\/([^/]+)$/)?.[1];
-    const activeCourseSection = new URLSearchParams(location.search).get("section") || "materials";
+    const searchParams = new URLSearchParams(location.search);
+    const courseContextId = searchParams.get("courseId") || courseId;
+    const courseSection = searchParams.get("section") || "materials";
+    const showStudentCourseNavigation = Boolean(courseContextId && !isStaff);
     const courseSections = [
-        ["overview", "Overview", <FaChartBar />],
-        ["materials", "Materials", <FaBookOpen />],
-        ...(isStaff ? [["students", "Students", <FaUsers />]] : []),
-        ["assignments", "Assignment", <FaClipboardList />],
-        ["quizzes", "Quizes", <FaQuestionCircle />],
-        ...(isStaff ? [["grading", "Grading", <FaChartBar />]] : []),
-        ...(!isStaff ? [["grades", "Grades", <FaChartBar />]] : []),
-        ["calendar", "Calendar", <FaCalendarAlt />],
-        ["announcements", "Announcements", <FaBell />]
+        ["course", "Course", <ModuleLogo name="courses" />, `/courses/${courseContextId}?section=materials`, `/courses/${courseContextId}`],
+        ["materials", "Materials", <ModuleLogo name="materials" />, `/materials?courseId=${courseContextId}`, "/materials"],
+        ["assignments", "Assignments", <ModuleLogo name="assignments" />, `/assignments?courseId=${courseContextId}`, "/assignments"],
+        ["quizzes", "Quizzes", <ModuleLogo name="quizzes" />, `/quizzes?courseId=${courseContextId}`, "/quizzes"],
+        ["calendar", "Calendar", <ModuleLogo name="calendar" />, `/calendar?courseId=${courseContextId}`, "/calendar"],
+        ["announcements", "Announcements", <ModuleLogo name="announcements" />, `/announcements?courseId=${courseContextId}`, "/announcements"]
     ];
+    const contextualModuleHref = (path) => courseContextId
+        ? `${path}?courseId=${encodeURIComponent(courseContextId)}`
+        : path;
 
     const handleNavClick = () => {
         if (window.innerWidth <= 768) onClose?.();
@@ -38,8 +34,10 @@ const Sidebar = ({ open, onClose }) => {
         <li key={to}>
             <NavLink
                 to={to}
-                end={to === "/courses"}
+                end={to === "/courses" ? showStudentCourseNavigation : true}
                 className={({ isActive }) => isActive ? "nav-link active" : "nav-link"}
+                title={label}
+                aria-label={label}
                 onClick={handleNavClick}
             >
                 <span className="nav-link-icon">{icon}</span>
@@ -50,72 +48,59 @@ const Sidebar = ({ open, onClose }) => {
 
     return (
         <aside className={open ? "sidebar" : "sidebar closed"}>
-            <div className="sidebar-brand">
-                <div className="sidebar-brand-lockup">
-                    <span className="brand-mark"><img src="/smartcampus-mark.png" alt="" /></span>
-                    <span className="sidebar-brand-copy">
-                        <strong>SmartCampus</strong>
-                        <span>LEARNING PLATFORM</span>
-                    </span>
-                </div>
-            </div>
-
-            <nav>
+            <nav aria-label="Main navigation">
                 <ul>
-                    {link("/dashboard", "Home", <FaHome />)}
-                    {link("/courses", "Courses", <FaBookOpen />)}
-                    {courseId && (
+                    {link("/dashboard", "Home", <ModuleLogo name="home" />)}
+                    {link("/courses", "Courses", <ModuleLogo name="courses" />)}
+                    {isStaff && link("/students", "Students", <FaUsers />)}
+                    {isStaff && link("/grades", "Grades", <ModuleLogo name="grades" />)}
+                    {isStaff && link(contextualModuleHref("/assignments"), "Assignments", <ModuleLogo name="assignments" />)}
+                    {isStaff && link(contextualModuleHref("/quizzes"), "Quizzes", <ModuleLogo name="quizzes" />)}
+                    {showStudentCourseNavigation && (
                         <>
-                            {courseSections.map(([section, label, icon]) => (
+                            {courseSections.map(([section, label, icon, to, sectionPath]) => {
+                                const isActive = location.pathname === sectionPath &&
+                                    (section !== "course" || courseSection === "materials");
+                                return (
                                 <li key={section}>
                                     <Link
-                                        to={section === "grades" ? "/grades" : `${location.pathname}?section=${section}`}
-                                        className={section === "grades"
-                                            ? location.pathname === "/grades" ? "nav-link active" : "nav-link"
-                                            : activeCourseSection === section || (section === "grading" && activeCourseSection === "gradebook") ? "nav-link active" : "nav-link"}
-                                        aria-current={section === "grades"
-                                            ? location.pathname === "/grades" ? "page" : undefined
-                                            : activeCourseSection === section || (section === "grading" && activeCourseSection === "gradebook") ? "page" : undefined}
+                                        to={to}
+                                        className={isActive ? "nav-link active" : "nav-link"}
+                                        title={label}
+                                        aria-label={label}
+                                        aria-current={isActive ? "page" : undefined}
                                         onClick={handleNavClick}
                                     >
                                         <span className="nav-link-icon">{icon}</span>
                                         <span>{label}</span>
                                     </Link>
                                 </li>
-                            ))}
+                            );})}
                         </>
                     )}
-                    {!courseId && (
+                    {!showStudentCourseNavigation && (
                         <>
                             <li>
-                                <Link to="/materials" className={location.pathname === "/materials" ? "nav-link active" : "nav-link"} onClick={handleNavClick}>
-                                    <span className="nav-link-icon"><FaBookOpen /></span>
+                                <Link to={contextualModuleHref("/materials")} className={location.pathname === "/materials" ? "nav-link active" : "nav-link"} title="Materials" aria-label="Materials" onClick={handleNavClick}>
+                                <span className="nav-link-icon"><ModuleLogo name="materials" /></span>
                                     <span>Materials</span>
                                 </Link>
                             </li>
-                            <li>
-                                <Link to="/quizzes" className={location.pathname === "/quizzes" ? "nav-link active" : "nav-link"} onClick={handleNavClick}>
-                                    <span className="nav-link-icon"><FaQuestionCircle /></span>
-                                    <span>Quizes</span>
-                                </Link>
-                            </li>
-                            {isStaff && link("/students", "Students", <FaUsers />)}
-                            {!isStaff && link("/grades", "Grades", <FaChartBar />)}
-                            {isStaff && (
+                            {!isStaff && link("/grades", "Grades", <ModuleLogo name="grades" />)}
+                            {!isStaff && (
                                 <li>
-                                    <Link to="/assignments" className={location.pathname === "/assignments" ? "nav-link active" : "nav-link"} onClick={handleNavClick}>
-                                        <span className="nav-link-icon"><FaChartBar /></span>
-                                        <span>Grading</span>
+                                    <Link to={contextualModuleHref("/quizzes")} className={location.pathname === "/quizzes" ? "nav-link active" : "nav-link"} title="Quizzes" aria-label="Quizzes" onClick={handleNavClick}>
+                                        <span className="nav-link-icon"><ModuleLogo name="quizzes" /></span>
+                                        <span>Quizzes</span>
                                     </Link>
                                 </li>
                             )}
-                            {!isStaff && link("/assignments", "Assignment", <FaClipboardList />)}
-                            {link("/calendar", "Calendar", <FaCalendarAlt />)}
-                            {link("/announcements", "Announcements", <FaBell />)}
+                            {!isStaff && link(contextualModuleHref("/assignments"), "Assignments", <ModuleLogo name="assignments" />)}
+                            {link(contextualModuleHref("/calendar"), "Calendar", <ModuleLogo name="calendar" />)}
+                            {link(contextualModuleHref("/announcements"), "Announcements", <ModuleLogo name="announcements" />)}
                         </>
                     )}
-                    {link("/settings", "Settings", <FaCog />)}
-                    {link("/help-feedback", "Help & Feedback", <FaLifeRing />)}
+                    {link("/settings", "Settings", <ModuleLogo name="settings" />)}
                 </ul>
             </nav>
         </aside>

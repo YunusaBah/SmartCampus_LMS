@@ -7,6 +7,8 @@ module.exports = sequelize.define("CalendarEvent", {
     assessmentId: { type: DataTypes.INTEGER, allowNull: true },
     createdById: { type: DataTypes.INTEGER, allowNull: false },
     eventType: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "event" },
+    occurrenceDate: { type: DataTypes.DATEONLY, allowNull: true },
+    status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: "scheduled" },
     title: { type: DataTypes.STRING, allowNull: false },
     description: { type: DataTypes.TEXT, allowNull: true },
     startsAt: { type: DataTypes.DATE, allowNull: false },

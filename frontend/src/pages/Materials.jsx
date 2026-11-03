@@ -1,24 +1,27 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
-import { FaBookOpen, FaDownload, FaEye, FaPlus, FaSearch, FaTimes } from "react-icons/fa";
+import { Link, useSearchParams } from "react-router-dom";
+import { FaBookOpen, FaEye, FaPlus, FaSearch, FaTimes } from "react-icons/fa";
 import API from "../services/api";
-import { downloadFile } from "../utils/downloadFile";
 import { useAuth } from "../hooks/useAuth";
 import MaterialPreviewDialog from "../components/MaterialPreviewDialog";
+import RouteBackButton from "../components/RouteBackButton";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
 
-const fileTypes = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp";
+const fileTypes = ".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp,.zip";
 
 const Materials = () => {
+    const offlineRefresh = useOfflineRefresh();
     const { isStaff } = useAuth();
+    const [searchParams] = useSearchParams();
+    const initialCourseId = searchParams.get("courseId");
     const [courses, setCourses] = useState([]);
     const [materials, setMaterials] = useState([]);
-    const [courseFilter, setCourseFilter] = useState("all");
+    const [courseFilter, setCourseFilter] = useState(initialCourseId || "all");
     const [search, setSearch] = useState("");
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
     const [uploadError, setUploadError] = useState("");
-    const [downloadError, setDownloadError] = useState("");
-    const [isUploadOpen, setIsUploadOpen] = useState(false);
+    const [isUploadOpen, setIsUploadOpen] = useState(() => isStaff && searchParams.get("create") === "1");
     const [previewMaterial, setPreviewMaterial] = useState(null);
     const [uploading, setUploading] = useState(false);
     const [form, setForm] = useState({ title: "", courseId: "", resourceUrl: "", file: null });
@@ -27,7 +30,6 @@ const Materials = () => {
     useEffect(() => {
         let active = true;
         const loadMaterials = async () => {
-            setLoading(true);
             setLoadError("");
             try {
                 const courseResponse = await API.get(isStaff ? "/courses/my" : "/enrollments/my-courses");
@@ -52,7 +54,7 @@ const Materials = () => {
                     setMaterials(courseMaterials.flat());
                     setForm((current) => ({
                         ...current,
-                        courseId: current.courseId || String((isStaff
+                        courseId: current.courseId || initialCourseId || String((isStaff
                             ? availableCourses[0]
                             : availableCourses.find((course) => course.permissions.includes("uploadMaterials"))
                         )?.id || "")
@@ -67,11 +69,8 @@ const Materials = () => {
 
         loadMaterials();
         return () => { active = false; };
-    }, [isStaff]);
+    }, [courses.length, initialCourseId, isStaff, materials.length, offlineRefresh]);
     const canUploadMaterials = isStaff || courses.some((course) => course.permissions?.includes("uploadMaterials"));
-    const uploadableCourses = isStaff
-        ? courses
-        : courses.filter((course) => course.permissions?.includes("uploadMaterials"));
 
     const visibleMaterials = useMemo(() => {
         const query = search.trim().toLowerCase();
@@ -88,15 +87,6 @@ const Materials = () => {
         if (uploading) return;
         setIsUploadOpen(false);
         setUploadError("");
-    };
-
-    const handleDownload = async (material) => {
-        setDownloadError("");
-        try {
-            await downloadFile(`/downloads/lesson/${material.id}`, material.fileName || `material-${material.id}`);
-        } catch (error) {
-            setDownloadError(error.message || "Unable to download this material.");
-        }
     };
 
     const shareMaterial = async (event) => {
@@ -136,6 +126,12 @@ const Materials = () => {
 
     return (
         <div className="page-content materials-page">
+            {courseFilter !== "all" && courses.some((course) => String(course.id) === courseFilter) && (
+                <RouteBackButton
+                    className="course-context-back"
+                    label={`Back to ${courses.find((course) => String(course.id) === courseFilter)?.title}`}
+                />
+            )}
             <header className="materials-header">
                 <div>
                     <p className="eyebrow">LEARNING RESOURCES</p>
@@ -144,16 +140,15 @@ const Materials = () => {
                 {canUploadMaterials && (
                     <button
                         type="button"
-                        className="create-course-button"
-                        aria-label="Share a material"
-                        title="Share a material"
+                        className="btn btn-inline materials-upload-trigger"
+                        aria-label="Upload material"
                         disabled={!courses.length}
                         onClick={() => {
                             setUploadError("");
                             setIsUploadOpen(true);
                         }}
                     >
-                        <FaPlus aria-hidden="true" />
+                        <FaPlus aria-hidden="true" /> Upload material
                     </button>
                 )}
             </header>
@@ -164,7 +159,7 @@ const Materials = () => {
                     <span className="sr-only">Search materials</span>
                     <input
                         type="search"
-                        placeholder="Search materials or courses"
+                        placeholder="Search: materials, courses"
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
                     />
@@ -173,7 +168,7 @@ const Materials = () => {
                     <span>Course</span>
                     <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
                         <option value="all">All courses</option>
-                        {uploadableCourses.map((course) => (
+                        {courses.map((course) => (
                             <option key={course.id} value={String(course.id)}>{course.title}</option>
                         ))}
                     </select>
@@ -181,47 +176,46 @@ const Materials = () => {
             </div>
 
             {loadError && <p className="materials-error" role="alert">{loadError}</p>}
-            {downloadError && <p className="materials-error" role="alert">{downloadError}</p>}
             {loading ? (
                 <p role="status">Loading shared materials...</p>
             ) : visibleMaterials.length ? (
-                <div className="materials-list">
-                    {visibleMaterials.map((material) => (
-                        <article className="material-item" key={`${material.courseId}-${material.id}`}>
-                            <span className="material-item-icon"><FaBookOpen /></span>
-                            <div className="material-item-content">
-                                <h2>{material.title}</h2>
-                                <Link to={`/courses/${material.courseId}?section=materials`} className="material-course-link">
-                                    {material.courseTitle}
-                                </Link>
-                                {material.createdAt && (
-                                    <time dateTime={material.createdAt}>
-                                        Added {new Date(material.createdAt).toLocaleDateString()}
-                                    </time>
-                                )}
-                                {material.content && <p>{material.content}</p>}
-                                {material.videoUrl && <a href={material.videoUrl} target="_blank" rel="noreferrer">Open learning resource</a>}
-                            </div>
-                            {material.hasFile && (
-                                <div className="material-file-actions">
-                                    <button
-                                        type="button"
-                                        className="material-download"
-                                        onClick={() => handleDownload(material)}
-                                    >
-                                        <FaDownload /> Download
-                                    </button>
-                                    <button
-                                        type="button"
-                                        className="material-view"
-                                        onClick={() => setPreviewMaterial(material)}
-                                    >
-                                        <FaEye /> View
-                                    </button>
-                                </div>
-                            )}
-                        </article>
-                    ))}
+                <div className="grading-table-scroll materials-table-scroll">
+                    <table className="grading-table materials-table">
+                        <thead>
+                            <tr>
+                                <th scope="col" className="table-number-column">No.</th>
+                                <th scope="col">Course name</th>
+                                <th scope="col">Title</th>
+                                <th scope="col">Date</th>
+                                <th scope="col">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {visibleMaterials.map((material, index) => (
+                                <tr key={`${material.courseId}-${material.id}`}>
+                                    <td className="table-number-column">{index + 1}</td>
+                                    <td>
+                                        <Link to={`/courses/${material.courseId}?section=${isStaff ? "manage" : "materials"}`} className="material-course-link">
+                                            {material.courseTitle}
+                                        </Link>
+                                    </td>
+                                    <td><strong>{material.title}</strong></td>
+                                    <td>{material.createdAt ? new Date(material.createdAt).toLocaleDateString() : "—"}</td>
+                                    <td>
+                                        {material.hasFile ? (
+                                            <button type="button" className="file-view-button" onClick={() => setPreviewMaterial(material)}>
+                                                <FaEye aria-hidden="true" /> View
+                                            </button>
+                                        ) : material.videoUrl ? (
+                                            <a className="file-view-button" href={material.videoUrl} target="_blank" rel="noreferrer">
+                                                <FaEye aria-hidden="true" /> Open
+                                            </a>
+                                        ) : "—"}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
                 </div>
             ) : (
                 <div className="materials-empty">
@@ -294,8 +288,8 @@ const Materials = () => {
                             </label>
                             <div className="course-modal-actions">
                                 <button type="button" className="course-cancel-button" onClick={closeUpload} disabled={uploading}>Cancel</button>
-                                <button type="submit" className="btn btn-inline" disabled={uploading}>
-                                    {uploading ? "Sharing..." : "Share material"}
+                                <button type="submit" className="upload-icon-button" aria-label={uploading ? "Sharing material" : "Share material"} title={uploading ? "Sharing material" : "Share material"} disabled={uploading}>
+                                    <FaPlus aria-hidden="true" />
                                 </button>
                             </div>
                         </form>
@@ -306,6 +300,7 @@ const Materials = () => {
                 key={previewMaterial.id}
                 resourcePath={`/downloads/lesson/${previewMaterial.id}`}
                 fileName={previewMaterial.fileName || previewMaterial.title}
+                lessonId={previewMaterial.id}
                 onClose={() => setPreviewMaterial(null)}
             />}
         </div>

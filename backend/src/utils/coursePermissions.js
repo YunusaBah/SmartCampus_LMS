@@ -2,8 +2,7 @@ const COURSE_PERMISSIONS = [
     "uploadMaterials",
     "createAssignments",
     "gradeAssignments",
-    "postAnnouncements",
-    "messageLecturer"
+    "postAnnouncements"
 ];
 
 const COURSE_PERMISSION_ROLES = ["student_assistant", "class_representative"];

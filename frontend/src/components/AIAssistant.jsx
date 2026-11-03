@@ -32,10 +32,14 @@ const AIAssistant = ({ courseName = "", lessonContent = "" }) => {
                 context: { courseName, lessonContent }
             });
             setMessages(prev => [...prev, { role: "ai", text: res.data.reply }]);
-        } catch {
+        } catch (error) {
             setMessages(prev => [...prev, {
                 role: "ai",
-                text: "Sorry, I couldn't respond. Please try again."
+                text: error.response?.data?.message || (
+                    error.code === "ECONNABORTED" || error.code === "ERR_NETWORK"
+                        ? "Unable to connect to SmartCampus. Check that the backend is running and try again."
+                        : "Sorry, I couldn't respond. Please try again."
+                )
             }]);
         } finally {
             setLoading(false);

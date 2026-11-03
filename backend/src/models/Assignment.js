@@ -34,6 +34,13 @@ const Assignment = sequelize.define("Assignment", {
         allowNull: true
     },
 
+    workType: {
+        type: DataTypes.STRING(20),
+        allowNull: false,
+        defaultValue: "assignment",
+        validate: { isIn: [["assignment", "classwork"]] }
+    },
+
     courseId: {
         type: DataTypes.INTEGER,
         allowNull: false

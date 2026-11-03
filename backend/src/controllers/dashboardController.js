@@ -18,6 +18,11 @@ const mapGroupedCounts = (rows) => new Map(rows.map((row) => [
 ]));
 
 exports.getDashboard = async (req, res) => {
+    res.set({
+        "Cache-Control": "private, no-store, no-cache, must-revalidate",
+        Pragma: "no-cache",
+        Expires: "0"
+    });
     try {
         const now = new Date();
         const displayName = (await User.findByPk(req.user.id, {
@@ -487,24 +492,15 @@ exports.getStats = async (req, res) => {
             });
         }
 
-        const [quizAggregate, gradedAssignments] = await Promise.all([
-            QuizResult.findOne({
-                where: { studentId: req.user.id },
-                attributes: [[fn("AVG", col("score")), "average"]],
-                raw: true
-            }),
-            Submission.count({
-                where: { studentId: req.user.id, grade: { [Op.ne]: "Pending" } }
-            })
-        ]);
-        const quizAverage = Math.round(Number(quizAggregate?.average || 0) * 100);
+        const gradedAssignments = await Submission.count({
+            where: { studentId: req.user.id, grade: { [Op.ne]: "Pending" } }
+        });
 
         res.json({
             role: "student",
             totalCourses: enrollments.length,
             assignments: assignmentCount,
             completedCourses: enrollments.length,
-            quizAverage,
             gradedAssignments
         });
 

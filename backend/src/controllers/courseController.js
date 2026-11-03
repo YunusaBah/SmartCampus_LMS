@@ -60,6 +60,44 @@ const parseEnrollmentEnabled = (value) => {
     throw new Error("Enrollment setting must be true or false");
 };
 
+const parseClassSchedule = (body, creating = false) => {
+    const scheduleProvided = ["classDays", "classStartTime", "classEndTime", "classTimeZone"]
+        .some((field) => body[field] !== undefined);
+    if (!scheduleProvided && !creating) return {};
+
+    let classDays = body.classDays;
+    if (typeof classDays === "string") {
+        try {
+            classDays = JSON.parse(classDays);
+        } catch {
+            throw new Error("Class days must be a list of weekdays");
+        }
+    }
+    if (!Array.isArray(classDays) || !classDays.length ||
+        classDays.some((day) => !Number.isInteger(day) || day < 0 || day > 6) ||
+        new Set(classDays).size !== classDays.length) {
+        throw new Error("Choose at least one valid class day");
+    }
+    const validTime = (value) => typeof value === "string" &&
+        /^([01]\d|2[0-3]):[0-5]\d$/.test(value);
+    if (!validTime(body.classStartTime) || !validTime(body.classEndTime) ||
+        body.classStartTime >= body.classEndTime) {
+        throw new Error("Enter a valid class start and end time");
+    }
+    const classTimeZone = body.classTimeZone || "UTC";
+    try {
+        new Intl.DateTimeFormat("en", { timeZone: classTimeZone });
+    } catch {
+        throw new Error("Choose a valid class time zone");
+    }
+    return {
+        classDays: [...classDays].sort((left, right) => left - right),
+        classStartTime: body.classStartTime,
+        classEndTime: body.classEndTime,
+        classTimeZone
+    };
+};
+
 const validateCourseFields = (body, creating = false) => {
     const title = body.title;
     if (creating && (typeof title !== "string" || !title.trim())) {
@@ -74,7 +112,9 @@ const validateCourseFields = (body, creating = false) => {
     }
     return {
         ...(title !== undefined ? { title: title.trim() } : {}),
-        ...(body.description !== undefined ? { description: optionalText(body.description, 10000, "Description") || "" } : {}),
+        ...(body.description !== undefined
+            ? { description: optionalText(body.description, 10000, "Description") || "" }
+            : creating ? { description: "" } : {}),
         ...(body.academicCode !== undefined ? { academicCode: optionalText(body.academicCode, 50, "Academic course code") } : {}),
         ...(body.category !== undefined ? { category: optionalText(body.category, 100, "Course category") } : {}),
         ...(status !== undefined ? { status } : {}),
@@ -83,7 +123,8 @@ const validateCourseFields = (body, creating = false) => {
             : {}),
         ...((body.startDate !== undefined || body.endDate !== undefined)
             ? parseCourseDates(body.startDate, body.endDate)
-            : {})
+            : {}),
+        ...parseClassSchedule(body, creating)
     };
 };
 
@@ -170,7 +211,8 @@ exports.createCourse = async (req, res) => {
         if (error.message === "File contents do not match a supported material file type" ||
             error.message?.includes("required") || error.message?.includes("characters") ||
             error.message?.includes("format") || error.message?.includes("date") ||
-            error.message?.includes("setting") || error.message?.includes("status")) {
+            error.message?.includes("setting") || error.message?.includes("status") ||
+            error.message?.includes("class")) {
             return res.status(400).json({ message: error.message });
         }
         console.error("Failed to create course:", error);
@@ -212,7 +254,7 @@ exports.updateCourse = async (req, res) => {
     } catch (error) {
         if (error.message?.includes("characters") || error.message?.includes("format") ||
             error.message?.includes("date") || error.message?.includes("setting") ||
-            error.message?.includes("status")) {
+            error.message?.includes("status") || error.message?.includes("class")) {
             return res.status(400).json({ message: error.message });
         }
         console.error("Failed to update course:", error);
@@ -607,7 +649,7 @@ exports.getCourseDetail = async (req, res) => {
         });
         courseData.hasContentFile = Boolean(courseData.contentFileUrl);
         delete courseData.contentFileUrl;
-        if (!isManager) delete courseData.classCode;
+        if (!isManager && !isEnrolled) delete courseData.classCode;
         res.json({
             course: courseData,
             lessons: lessonData,

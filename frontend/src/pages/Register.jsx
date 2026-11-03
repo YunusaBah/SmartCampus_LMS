@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import API from "../services/api";
 import GoogleSignInButton from "../components/GoogleSignInButton";
 
@@ -11,15 +11,20 @@ const saveSession = (result) => {
 
 const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
     const navigate = useNavigate();
+    const location = useLocation();
     const [formData, setFormData] = useState({
         fullName: "",
+        email: "",
+        password: "",
+        confirmPassword: "",
         matNumber: "",
         phone: "",
-        role: ""
+        role: "student"
     });
     const [error, setError] = useState("");
     const [message, setMessage] = useState("");
     const [loading, setLoading] = useState(false);
+    const [registrationMethod, setRegistrationMethod] = useState("");
     const [googleCredential, setGoogleCredential] = useState("");
     const [verifiedAccount, setVerifiedAccount] = useState(null);
 
@@ -43,7 +48,8 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
     const finishSignup = (result) => {
         saveSession(result);
         if (onSuccess) onSuccess();
-        navigate("/dashboard", { replace: true });
+        const code = new URLSearchParams(location.search).get("join");
+        navigate(code ? `/invite?code=${encodeURIComponent(code)}` : "/dashboard", { replace: true });
     };
 
     const completeRegistration = async (credential, profile = {}) => {
@@ -94,6 +100,45 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
         });
     };
 
+    const handleEmailSubmit = async (event) => {
+        event.preventDefault();
+        setError("");
+        setMessage("");
+        if (formData.password !== formData.confirmPassword) {
+            setError("The passwords do not match.");
+            return;
+        }
+
+        setLoading(true);
+        try {
+            const response = await API.post("/auth/register", {
+                fullName: formData.fullName,
+                email: formData.email,
+                password: formData.password,
+                role: formData.role,
+                matNumber: formData.role === "student" ? formData.matNumber : undefined,
+                phone: formData.role === "student" ? formData.phone : undefined
+            });
+            finishSignup(response);
+        } catch (registrationError) {
+            setError(registrationError.response?.data?.message || (
+                registrationError.code === "ECONNABORTED" || registrationError.code === "ERR_NETWORK"
+                    ? "Unable to connect to SmartCampus. Check your connection and try again."
+                    : "Account creation failed. Please try again."
+            ));
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const changeSignupMethod = (method) => {
+        setRegistrationMethod(method);
+        setGoogleCredential("");
+        setVerifiedAccount(null);
+        setError("");
+        setMessage("");
+    };
+
     const formCard = (
         <section
             className={`form-box register-card${embedded ? " register-modal-card" : ""}`}
@@ -114,103 +159,222 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
             <header className="register-heading">
                 <p className="register-eyebrow">THE UNIVERSITY OF THE GAMBIA</p>
                 <h2 id="register-title">Create your account</h2>
-                <p>Select account type and verify your Google email.</p>
+                <p>Choose your account type and how you want to sign up.</p>
             </header>
 
             {error && <p className="register-error" role="alert">{error}</p>}
             {message && <p className="login-success" role="status">{message}</p>}
 
-            <div className="account-type-picker" aria-label="Choose account type">
-                {["student", "lecturer"].map((role) => (
-                    <button
-                        className={formData.role === role ? "active" : ""}
-                        key={role}
-                        type="button"
-                        aria-pressed={formData.role === role}
-                        disabled={loading || Boolean(googleCredential)}
-                        onClick={() => {
-                            setFormData((current) => ({ ...current, role }));
-                            setError("");
-                            setMessage("");
-                        }}
-                    >
-                        {role === "student" ? "Student" : "Lecturer"}
-                    </button>
-                ))}
-            </div>
+            <label className="register-account-notice">
+                Account type
+                <select
+                    name="role"
+                    value={formData.role}
+                    onChange={(event) => {
+                        setFormData((current) => ({
+                            ...current,
+                            role: event.target.value,
+                            matNumber: "",
+                            phone: ""
+                        }));
+                        setError("");
+                        setMessage("");
+                    }}
+                >
+                    <option value="student">Student</option>
+                    <option value="lecturer">Lecturer</option>
+                </select>
+            </label>
 
-            {formData.role && !googleCredential && (
-                <div className="google-signin-section">
+            {formData.role && !registrationMethod && (
+                <div className="register-method-picker">
                     <p className="google-signin-copy">
-                        {formData.role === "student"
-                            ? "Verify your Google email. Student details are required."
-                            : "Use your active Google account to open the lecturer workspace."}
+                        Sign up as a {formData.role} using your email and password, or continue with Google.
                     </p>
+                    <button className="btn register-submit" type="button" onClick={() => changeSignupMethod("email")}>
+                        Sign up with email
+                    </button>
+                    <div className="auth-divider"><span>or</span></div>
                     <GoogleSignInButton
                         text="signup_with"
-                        onCredential={handleCredential}
+                        onCredential={(credential) => {
+                            setRegistrationMethod("google");
+                            handleCredential(credential);
+                        }}
                         onError={setError}
                     />
                     {loading && <p className="google-signin-loading" role="status">Verifying your Google account…</p>}
                 </div>
             )}
 
-            {googleCredential && verifiedAccount && formData.role === "student" && (
-                <form className="register-form" onSubmit={handleSubmit}>
-                    <label className="verified-email">
-                        Verified Google email
-                        <input type="email" value={verifiedAccount.email} readOnly />
-                    </label>
-                    <label>
-                        Full name
-                        <input
-                            type="text"
-                            name="fullName"
-                            autoComplete="name"
-                            value={formData.fullName}
-                            onChange={(event) => setFormData((current) => ({
-                                ...current,
-                                fullName: event.target.value
-                            }))}
-                            minLength={2}
-                            maxLength={255}
-                            required
-                        />
-                    </label>
-                    <label>
-                        Student ID / matriculation number
-                        <input
-                            type="text"
-                            name="matNumber"
-                            autoComplete="off"
-                            value={formData.matNumber}
-                            onChange={(event) => setFormData((current) => ({
-                                ...current,
-                                matNumber: event.target.value
-                            }))}
-                            maxLength={50}
-                            required
-                        />
-                    </label>
-                    <label>
-                        Phone number
-                        <input
-                            type="tel"
-                            name="phone"
-                            autoComplete="tel"
-                            value={formData.phone}
-                            onChange={(event) => setFormData((current) => ({
-                                ...current,
-                                phone: event.target.value
-                            }))}
-                            maxLength={30}
-                            required
-                        />
-                    </label>
-                    <button className="btn register-submit" type="submit" disabled={loading}>
-                        {loading ? "Creating account…" : "Complete student registration"}
+            {registrationMethod === "email" && (
+                <>
+                    <form className="register-form" onSubmit={handleEmailSubmit}>
+                        <label>
+                            Full name
+                            <input
+                                type="text"
+                                name="fullName"
+                                autoComplete="name"
+                                value={formData.fullName}
+                                onChange={(event) => setFormData((current) => ({
+                                    ...current,
+                                    fullName: event.target.value
+                                }))}
+                                minLength={2}
+                                maxLength={255}
+                                required
+                            />
+                        </label>
+                        {formData.role === "student" && (
+                            <>
+                                <label>
+                                    Student ID / matriculation number
+                                    <input
+                                        type="text"
+                                        name="matNumber"
+                                        autoComplete="off"
+                                        value={formData.matNumber}
+                                        onChange={(event) => setFormData((current) => ({
+                                            ...current,
+                                            matNumber: event.target.value
+                                        }))}
+                                        maxLength={50}
+                                        required
+                                    />
+                                </label>
+                                <label>
+                                    Phone number <span className="register-optional">(optional)</span>
+                                    <input
+                                        type="tel"
+                                        name="phone"
+                                        autoComplete="tel"
+                                        value={formData.phone}
+                                        onChange={(event) => setFormData((current) => ({
+                                            ...current,
+                                            phone: event.target.value
+                                        }))}
+                                        maxLength={30}
+                                    />
+                                </label>
+                            </>
+                        )}
+                        <label>
+                            Email address
+                            <input
+                                type="email"
+                                name="email"
+                                autoComplete="email"
+                                maxLength={254}
+                                value={formData.email}
+                                onChange={(event) => setFormData((current) => ({
+                                    ...current,
+                                    email: event.target.value
+                                }))}
+                                required
+                            />
+                        </label>
+                        <label>
+                            Password
+                            <input
+                                type="password"
+                                name="password"
+                                autoComplete="new-password"
+                                minLength={6}
+                                value={formData.password}
+                                onChange={(event) => setFormData((current) => ({
+                                    ...current,
+                                    password: event.target.value
+                                }))}
+                                required
+                            />
+                            <small className="register-field-hint">Use at least 6 characters.</small>
+                        </label>
+                        <label>
+                            Confirm password
+                            <input
+                                type="password"
+                                name="confirmPassword"
+                                autoComplete="new-password"
+                                minLength={6}
+                                value={formData.confirmPassword}
+                                onChange={(event) => setFormData((current) => ({
+                                    ...current,
+                                    confirmPassword: event.target.value
+                                }))}
+                                required
+                            />
+                        </label>
+                        <button className="btn register-submit" type="submit" disabled={loading}>
+                            {loading ? "Creating account…" : "Create account"}
+                        </button>
+                    </form>
+                    <button className="register-method-back" type="button" onClick={() => changeSignupMethod("")}>
+                        Choose another sign-up method
                     </button>
-                </form>
+                </>
+            )}
+
+            {googleCredential && verifiedAccount && formData.role === "student" && (
+                <>
+                    <form className="register-form" onSubmit={handleSubmit}>
+                        <label className="verified-email">
+                            Verified Google email
+                            <input type="email" value={verifiedAccount.email} readOnly />
+                        </label>
+                        <label>
+                            Full name
+                            <input
+                                type="text"
+                                name="fullName"
+                                autoComplete="name"
+                                value={formData.fullName}
+                                onChange={(event) => setFormData((current) => ({
+                                    ...current,
+                                    fullName: event.target.value
+                                }))}
+                                minLength={2}
+                                maxLength={255}
+                                required
+                            />
+                        </label>
+                        <label>
+                            Student ID / matriculation number
+                            <input
+                                type="text"
+                                name="matNumber"
+                                autoComplete="off"
+                                value={formData.matNumber}
+                                onChange={(event) => setFormData((current) => ({
+                                    ...current,
+                                    matNumber: event.target.value
+                                }))}
+                                maxLength={50}
+                                required
+                            />
+                        </label>
+                        <label>
+                            Phone number <span className="register-optional">(optional)</span>
+                            <input
+                                type="tel"
+                                name="phone"
+                                autoComplete="tel"
+                                value={formData.phone}
+                                onChange={(event) => setFormData((current) => ({
+                                    ...current,
+                                    phone: event.target.value
+                                }))}
+                                maxLength={30}
+                            />
+                        </label>
+                        <button className="btn register-submit" type="submit" disabled={loading}>
+                            {loading ? "Creating account…" : "Complete student registration"}
+                        </button>
+                    </form>
+                    <button className="register-method-back" type="button" onClick={() => changeSignupMethod("")}>
+                        Choose another sign-up method
+                    </button>
+                </>
             )}
 
             <p className="register-login-link">

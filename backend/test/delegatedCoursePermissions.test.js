@@ -13,7 +13,6 @@ const Submission = require("../src/models/Submission");
 const Message = require("../src/models/Message");
 const Notification = require("../src/models/Notification");
 const { sequelize } = require("../src/config/db");
-const { Op } = require("sequelize");
 const lessonController = require("../src/controllers/lessonController");
 const assignmentController = require("../src/controllers/assignmentController");
 const lmsController = require("../src/controllers/lmsController");
@@ -70,6 +69,7 @@ test("course permissions are granular and revoked permissions stop granting acce
     };
     assert.equal(hasCoursePermission(enrollment, "uploadMaterials"), true);
     assert.equal(hasCoursePermission(enrollment, "postAnnouncements"), false);
+    assert.equal(hasCoursePermission(enrollment, "messageLecturer"), false);
     enrollment.permissions = [];
     assert.equal(hasCoursePermission(enrollment, "uploadMaterials"), false);
 });
@@ -92,14 +92,14 @@ test("lecturer permission changes save role and rights and can revoke them", asy
         params: { id: "4", studentId: "8" },
         body: {
             role: "student_assistant",
-            permissions: ["uploadMaterials", "gradeAssignments", "messageLecturer"]
+            permissions: ["uploadMaterials", "gradeAssignments"]
         },
         user: { id: 2, role: "lecturer" }
     }, response);
 
     assert.equal(response.statusCode, 200);
     assert.equal(enrollment.permissionRole, "student_assistant");
-    assert.deepEqual(enrollment.permissions, ["uploadMaterials", "gradeAssignments", "messageLecturer"]);
+    assert.deepEqual(enrollment.permissions, ["uploadMaterials", "gradeAssignments"]);
     assert.equal(hasCoursePermission(enrollment, "gradeAssignments"), true);
 
     const revokeResponse = responseFor();
@@ -113,6 +113,24 @@ test("lecturer permission changes save role and rights and can revoke them", asy
     assert.equal(enrollment.permissionRole, null);
     assert.deepEqual(enrollment.permissions, []);
     assert.equal(hasCoursePermission(enrollment, "gradeAssignments"), false);
+});
+
+test("lecturer cannot grant the removed private-message permission", async () => {
+    let courseLookupCalled = false;
+    Course.findOne = async () => {
+        courseLookupCalled = true;
+        return { id: 4 };
+    };
+    const response = responseFor();
+
+    await courseController.updateStudentCoursePermissions({
+        params: { id: "4", studentId: "8" },
+        body: { role: "student_assistant", permissions: ["messageLecturer"] },
+        user: { id: 2, role: "lecturer" }
+    }, response);
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(courseLookupCalled, false);
 });
 
 test("lecturer student list includes each enrollment's saved permissions", async () => {
@@ -143,7 +161,7 @@ test("lecturer student list includes each enrollment's saved permissions", async
         "createdAt", "permissionRole", "permissions", "canPostAnnouncements"
     ]);
     assert.equal(response.body[0].permissionRole, "student_assistant");
-    assert.deepEqual(response.body[0].permissions, ["uploadMaterials", "messageLecturer"]);
+    assert.deepEqual(response.body[0].permissions, ["uploadMaterials"]);
 });
 
 test("a student with material permission can add a resource to an enrolled course", async () => {
@@ -204,12 +222,9 @@ test("a student without message permission cannot message the lecturer", async (
     assert.match(response.body.message, /not enabled private course messages/i);
 });
 
-test("a permitted student can privately message the course lecturer", async () => {
+test("legacy private-message permission no longer grants course messaging", async () => {
     Course.findByPk = async () => ({ id: 4, lecturerId: 2 });
     Enrollment.findOne = async () => ({ studentId: 8, courseId: 4, permissions: ["messageLecturer"] });
-    sequelize.transaction = (callback) => callback({});
-    Message.create = async (values) => ({ id: 15, ...values });
-    Notification.bulkCreate = async () => [];
     const response = responseFor();
 
     await lmsController.sendLecturerMessage({
@@ -218,26 +233,16 @@ test("a permitted student can privately message the course lecturer", async () =
         user: { id: 8, role: "student" }
     }, response);
 
-    assert.equal(response.statusCode, 201);
-    assert.equal(response.body.senderId, 8);
-    assert.equal(response.body.recipientId, 2);
+    assert.equal(response.statusCode, 403);
+    assert.match(response.body.message, /not enabled private course messages/i);
 });
 
-test("lecturer inbox lists only students granted private message permission", async () => {
+test("lecturer inbox excludes legacy private-message permissions", async () => {
     Course.findByPk = async () => ({ id: 4, lecturerId: 2 });
-    let enrollmentCalls = 0;
-    let permittedIds = null;
-    Enrollment.findAll = async (query) => {
-        enrollmentCalls += 1;
-        if (enrollmentCalls === 1) {
-            return [
-                { studentId: 8, permissions: ["messageLecturer"] },
-                { studentId: 9, permissions: [] }
-            ];
-        }
-        permittedIds = query.where.studentId[Op.in];
-        return [{ student: { id: 8, fullName: "Student One" } }];
-    };
+    Enrollment.findAll = async () => [
+        { studentId: 8, permissions: ["messageLecturer"] },
+        { studentId: 9, permissions: [] }
+    ];
     Message.findAll = async () => [];
     const response = responseFor();
 
@@ -246,8 +251,7 @@ test("lecturer inbox lists only students granted private message permission", as
         user: { id: 2, role: "lecturer" }
     }, response);
 
-    assert.deepEqual(permittedIds, [8]);
-    assert.deepEqual(response.body.students, [{ id: 8, fullName: "Student One" }]);
+    assert.deepEqual(response.body.students, []);
 });
 
 test("a student with grading permission cannot grade their own submission", async () => {

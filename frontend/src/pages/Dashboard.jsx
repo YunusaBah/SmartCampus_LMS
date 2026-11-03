@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
 import {
     FaArrowRight,
     FaBookOpen,
@@ -7,7 +8,6 @@ import {
     FaClipboardList,
     FaClock,
     FaGraduationCap,
-    FaLayerGroup,
     FaPlus,
     FaUsers
 } from "react-icons/fa";
@@ -23,35 +23,46 @@ const delegatedPermissionLabels = {
     uploadMaterials: "Upload course materials",
     createAssignments: "Create assignments",
     gradeAssignments: "Grade assignments",
-    postAnnouncements: "Post announcements",
-    messageLecturer: "Message the lecturer"
+    postAnnouncements: "Post announcements"
 };
 
 const delegatedPermissionLinks = {
-    uploadMaterials: "materials",
-    createAssignments: "assignments",
-    gradeAssignments: "assignments",
-    postAnnouncements: "announcements",
-    messageLecturer: "announcements"
+    uploadMaterials: "/materials",
+    createAssignments: "/assignments",
+    gradeAssignments: "/assignments",
+    postAnnouncements: "/announcements"
 };
 
 const Dashboard = () => {
+    const offlineRefresh = useOfflineRefresh();
     const [dashboard, setDashboard] = useState(null);
     const [error, setError] = useState("");
     const [loading, setLoading] = useState(true);
     const [reload, setReload] = useState(0);
+    const hasDashboardRef = useRef(false);
 
     useEffect(() => {
         let active = true;
+        const controller = new AbortController();
         const refreshDashboard = () => setReload((value) => value + 1);
         window.addEventListener("smartcampus:dashboard-refresh", refreshDashboard);
         window.addEventListener("focus", refreshDashboard);
         const loadDashboard = async () => {
             try {
-                const response = await API.get("/dashboard");
-                if (active) setDashboard(response.data);
+                const response = await API.get("/dashboard", {
+                    signal: controller.signal,
+                });
+                if (active) {
+                    setDashboard(response.data);
+                    hasDashboardRef.current = true;
+                    setError("");
+                }
             } catch (err) {
-                if (active) setError(err.response?.data?.message || "Unable to load your dashboard.");
+                if (active && err.code !== "ERR_CANCELED") {
+                    const message = err.response?.data?.message || "Unable to load your dashboard.";
+                    if (!hasDashboardRef.current) setError(message);
+                    else console.warn("Dashboard refresh failed; keeping the last loaded dashboard:", message);
+                }
             } finally {
                 if (active) setLoading(false);
             }
@@ -60,10 +71,11 @@ const Dashboard = () => {
         loadDashboard();
         return () => {
             active = false;
+            controller.abort();
             window.removeEventListener("smartcampus:dashboard-refresh", refreshDashboard);
             window.removeEventListener("focus", refreshDashboard);
         };
-    }, [reload]);
+    }, [offlineRefresh, reload]);
 
     if (loading) {
         return <div className="page-content dashboard-loading" role="status">Loading your learning space...</div>;
@@ -105,15 +117,15 @@ const Dashboard = () => {
             {isLecturer ? (
                 <>
                     <section className="dashboard-stats" aria-label="Teaching overview">
-                        <Link to="/courses?section=students" className="dashboard-stat">
+                        <Link to="/courses" className="dashboard-stat">
                             <span className="stat-icon"><FaBookOpen /></span>
                             <div><span>My courses</span><strong>{summary.myCourses}</strong></div>
                         </Link>
-                        <Link to="/courses" className="dashboard-stat">
+                        <Link to="/students" className="dashboard-stat">
                             <span className="stat-icon"><FaUsers /></span>
                             <div><span>Students enrolled</span><strong>{summary.studentsEnrolled}</strong></div>
                         </Link>
-                        <Link to="/courses?section=assignments" className="dashboard-stat">
+                        <Link to="/assignments" className="dashboard-stat">
                             <span className="stat-icon"><FaClipboardList /></span>
                             <div><span>Active assignments</span><strong>{summary.activeAssignments}</strong></div>
                         </Link>
@@ -131,7 +143,7 @@ const Dashboard = () => {
                         {courses.length ? (
                             <div className="course-list">
                                 {courses.map((course) => (
-                                    <Link to={`/courses/${course.id}?section=overview`} className="course-list-item" key={course.id}>
+                                    <Link to={`/courses/${course.id}?section=materials`} className="course-list-item" key={course.id}>
                                         <span className="course-list-icon"><FaBookOpen /></span>
                                         <span className="course-list-copy">
                                             <strong>{course.title}</strong>
@@ -157,11 +169,11 @@ const Dashboard = () => {
                             <div><p className="eyebrow">QUICK ACTIONS</p><h2>Get things done</h2></div>
                         </div>
                         <div className="dashboard-quick-actions">
-                            <Link to="/courses"><FaPlus /> Create course</Link>
-                            <Link to="/materials"><FaLayerGroup /> Upload materials</Link>
-                            <Link to="/courses?section=assignments"><FaClipboardList /> Create assignment</Link>
-                            <Link to="/quizzes"><FaGraduationCap /> Create quiz</Link>
-                            <Link to="/assignments"><FaClock /> Review submissions</Link>
+                            <Link to="/courses?create=1"><span className="dashboard-quick-action-icons"><FaPlus /><FaBookOpen /></span><span>Create course</span></Link>
+                            <Link to="/materials?create=1"><span className="dashboard-quick-action-icons"><FaPlus /><FaBookOpen /></span><span>Upload materials</span></Link>
+                            <Link to="/assignments?create=1"><span className="dashboard-quick-action-icons"><FaPlus /><FaClipboardList /></span><span>Create assignment</span></Link>
+                            <Link to="/quizzes?create=1"><span className="dashboard-quick-action-icons"><FaPlus /><FaGraduationCap /></span><span>Create quiz</span></Link>
+                            <Link to="/assignments?view=submissions"><span className="dashboard-quick-action-icons"><FaPlus /><FaClock /></span><span>Review submissions</span></Link>
                         </div>
                     </section>
 
@@ -177,7 +189,7 @@ const Dashboard = () => {
                             </div>
                             <div className="upcoming-list">
                                 {dashboard.recentActivity.map((activity) => (
-                                    <Link className="upcoming-item" to={activity.href} key={activity.id}>
+                                    <Link className="upcoming-item" to="/materials" key={activity.id}>
                                         <span className="upcoming-date">{formatDate(activity.startsAt)}</span>
                                         <span className="upcoming-copy"><strong>{activity.title}</strong><span>{activity.courseTitle}</span></span>
                                         <FaArrowRight className="course-list-arrow" />
@@ -227,7 +239,7 @@ const Dashboard = () => {
                                         <div className="delegated-permission-links">
                                             {grant.permissions.map((permission) => (
                                                 <Link
-                                                    to={`/courses/${grant.courseId}?section=${delegatedPermissionLinks[permission] || "overview"}`}
+                                                    to={delegatedPermissionLinks[permission]}
                                                     key={permission}
                                                 >
                                                     {delegatedPermissionLabels[permission] || permission}
@@ -251,7 +263,7 @@ const Dashboard = () => {
                                     {courses.map((course, index) => (
                                         <div className="course-list-item student-course-list-item" key={course.id}>
                                             <span className={`course-list-icon course-accent-${index % 3}`}><FaBookOpen /></span>
-                                            <Link to={`/courses/${course.id}?section=overview`} className="student-course-main-link">
+                                            <Link to={`/courses/${course.id}?section=materials`} className="student-course-main-link">
                                                 <span className="course-list-copy">
                                                     <strong>{course.title}</strong>
                                                     <span>Code: {course.courseCode || "Not set"} · {course.lecturerName} · {course.pendingAssignments} pending assignment{course.pendingAssignments === 1 ? "" : "s"}</span>
@@ -298,12 +310,12 @@ const Dashboard = () => {
                     <section className="dashboard-section">
                         <div className="section-heading">
                             <div><p className="eyebrow">FROM YOUR COURSES</p><h2>Recent announcements</h2></div>
-                            <Link to="/courses?section=announcements" className="text-link">View all announcements <FaArrowRight /></Link>
+                            <Link to="/announcements" className="text-link">View all announcements <FaArrowRight /></Link>
                         </div>
                         {dashboard.recentAnnouncements.length ? (
                             <div className="upcoming-list">
                                 {dashboard.recentAnnouncements.map((announcement) => (
-                                    <Link to={`/courses/${announcement.courseId}?section=announcements`} className="upcoming-item" key={announcement.id}>
+                                    <Link to="/announcements" className="upcoming-item" key={announcement.id}>
                                         <span className="upcoming-date">{formatDate(announcement.createdAt)}</span>
                                         <span className="upcoming-copy">
                                             <strong>{announcement.title}</strong>
@@ -341,11 +353,7 @@ const ActivitySection = ({ items = [], lecturer = false }) => (
             <div className="upcoming-list">
                 {items.map((activity) => (
                     <Link
-                        to={lecturer && activity.type === "grading"
-                            ? "/assignments"
-                            : `/courses/${activity.courseId}${lecturer
-                                ? "?section=assignments"
-                                : activity.type === "quiz" ? "?section=quizzes" : ""}`}
+                        to={activity.type === "quiz" ? "/quizzes" : "/assignments"}
                         className="upcoming-item"
                         key={activity.id}
                     >

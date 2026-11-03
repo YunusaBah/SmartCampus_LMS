@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { FaArrowLeft, FaBookOpen, FaLifeRing, FaMoon, FaShieldAlt, FaSlidersH, FaSun, FaUserCircle } from "react-icons/fa";
+import { FaArrowLeft, FaBookOpen, FaLifeRing, FaMoon, FaSearch, FaShieldAlt, FaSlidersH, FaSun, FaUserCircle } from "react-icons/fa";
 import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
 import { profilePictureStorageKey, readProfilePicture } from "../utils/profilePicture";
 import {
     defaultPageOptions,
@@ -152,8 +153,10 @@ const CourseSettingsForm = ({ course, section, onCourseUpdated }) => {
 };
 
 const Settings = ({ theme, setTheme }) => {
+    const offlineRefresh = useOfflineRefresh();
     const navigate = useNavigate();
     const location = useLocation();
+    const courseReturnTo = new URLSearchParams(location.search).get("returnTo");
     const { user, isStaff } = useAuth();
     const [profile, setProfile] = useState({
         fullName: user?.fullName || "",
@@ -166,6 +169,7 @@ const Settings = ({ theme, setTheme }) => {
     const [defaultPage, setDefaultPage] = useState(() => readDefaultPage(user?.id));
     const [notificationBadge, setNotificationBadge] = useState(() => readNotificationBadge(user?.id));
     const [textSize, setTextSize] = useState(() => readTextSizePreference(user?.id));
+    const [settingsSearch, setSettingsSearch] = useState("");
     const [profileStatus, setProfileStatus] = useState(null);
     const [profilePicture, setProfilePicture] = useState(() => readProfilePicture(user?.id));
     const [profilePictureError, setProfilePictureError] = useState("");
@@ -199,6 +203,77 @@ const Settings = ({ theme, setTheme }) => {
     const motionPage = settingsSubpage === "motion";
     const homePagePage = settingsSubpage === "home-page";
     const notificationsPage = settingsSubpage === "notifications";
+    const hasSettingsMenu = isSettingsHome ||
+        (showProfileSettings && !settingsSubpage) ||
+        (settingsPage === "security" && !settingsSubpage && user?.passwordLoginEnabled !== false) ||
+        (showPreferences && !settingsSubpage) ||
+        (showCourseSettings && !settingsSubpage && isStaff);
+    const settingsMenuOptions = isSettingsHome ? [
+        ...(isStaff ? [{
+            to: "/settings/courses",
+            title: "Course settings",
+            description: "Update course details and enrollment separately.",
+            keywords: "course name code category description status enrollment dates class code",
+            Icon: FaBookOpen
+        }] : []),
+        {
+            to: "/settings/profile",
+            title: "Profile",
+            description: "Manage personal information and profile picture.",
+            keywords: "name email picture student id phone number",
+            Icon: FaUserCircle
+        },
+        ...(user?.passwordLoginEnabled !== false ? [{
+            to: "/settings/security",
+            title: "Security",
+            description: "Manage your password settings.",
+            keywords: "password",
+            Icon: FaShieldAlt
+        }] : []),
+        {
+            to: "/settings/preferences",
+            title: "Preferences",
+            description: "Set your theme, text size, and motion preference.",
+            keywords: "theme appearance text size motion homepage notifications badge",
+            Icon: FaSlidersH
+        },
+        {
+            to: "/help-feedback",
+            title: "Help & Feedback",
+            description: "Follow step-by-step navigation guides or email private feedback to the developer.",
+            keywords: "help support guide feedback",
+            Icon: FaLifeRing
+        }
+    ] : showProfileSettings && !settingsSubpage ? [
+        { to: "/settings/profile/name", title: "Full name", description: "Update your account name.", keywords: "name", Icon: FaUserCircle },
+        { to: "/settings/profile/email", title: "Email address", description: "Update your account email.", keywords: "email", Icon: FaUserCircle },
+        { to: "/settings/profile/picture", title: "Profile picture", description: "Add or remove your account picture.", keywords: "photo avatar image", Icon: FaUserCircle },
+        ...(user?.role === "student" ? [
+            { to: "/settings/profile/student-id", title: "Student ID", description: "Update your matriculation number.", keywords: "matriculation id", Icon: FaUserCircle },
+            { to: "/settings/profile/phone", title: "Phone number", description: "Update your contact number.", keywords: "contact telephone", Icon: FaUserCircle }
+        ] : [])
+    ] : settingsPage === "security" && !settingsSubpage && user?.passwordLoginEnabled !== false ? [
+        { to: "/settings/security/password", title: "Change password", description: "Update your account password.", keywords: "security", Icon: FaShieldAlt }
+    ] : showPreferences && !settingsSubpage ? [
+        { to: "/settings/preferences/appearance", title: "Color theme", description: "Choose light or dark mode.", keywords: "appearance", Icon: FaSun },
+        { to: "/settings/preferences/text-size", title: "Text size", description: "Adjust text size for your account.", keywords: "font accessibility", Icon: FaSlidersH },
+        { to: "/settings/preferences/motion", title: "Reduce motion", description: "Limit interface animations.", keywords: "animation accessibility", Icon: FaMoon },
+        { to: "/settings/preferences/home-page", title: "Default page", description: "Choose where SmartCampus opens after login.", keywords: "home start", Icon: FaBookOpen },
+        { to: "/settings/preferences/notifications", title: "Notification badge", description: "Show or hide the unread count on the bell.", keywords: "alerts unread count", Icon: FaSlidersH }
+    ] : showCourseSettings && !settingsSubpage && isStaff && selectedCourseId ? [
+        { to: `/settings/courses/name?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Course name", description: "Update the title displayed for this course.", keywords: "title", Icon: FaBookOpen },
+        { to: `/settings/courses/code?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Academic course code", description: "Edit the course code.", keywords: "code", Icon: FaBookOpen },
+        { to: `/settings/courses/category?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Course category", description: "Set the category for this course.", keywords: "category", Icon: FaBookOpen },
+        { to: `/settings/courses/description?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Course description", description: "Edit the course description.", keywords: "description", Icon: FaBookOpen },
+        { to: `/settings/courses/status?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Course status", description: "Set this course active or archived.", keywords: "active archived", Icon: FaSlidersH },
+        { to: `/settings/courses/enrollment?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Enrollment", description: "Open or close enrollment.", keywords: "join open close", Icon: FaSlidersH },
+        { to: `/settings/courses/start?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Start date", description: "Set the course start date.", keywords: "begin", Icon: FaSlidersH },
+        { to: `/settings/courses/end?courseId=${encodeURIComponent(selectedCourseId)}`, title: "End date", description: "Set the course end date.", keywords: "finish", Icon: FaSlidersH },
+        { to: `/settings/courses/class-code?courseId=${encodeURIComponent(selectedCourseId)}`, title: "Enrollment class code", description: "View or regenerate the class code.", keywords: "invite access", Icon: FaSlidersH }
+    ] : [];
+    const visibleSettingsOptions = settingsMenuOptions.filter((option) =>
+        `${option.title} ${option.description} ${option.keywords}`.toLowerCase().includes(settingsSearch.trim().toLowerCase())
+    );
     const settingsPageTitles = {
         courses: "Course settings",
         profile: "Profile information",
@@ -231,7 +306,7 @@ const Settings = ({ theme, setTheme }) => {
         || settingsPageTitles[settingsPage]
         || "Settings";
     const parentSettingsPath = settingsPage === "courses" && courseSettingsRoute && selectedCourseId
-        ? `/settings/courses?courseId=${encodeURIComponent(selectedCourseId)}`
+        ? `/settings/courses?courseId=${encodeURIComponent(selectedCourseId)}${courseReturnTo ? `&returnTo=${encodeURIComponent(courseReturnTo)}` : ""}`
         : settingsSubpage ? `/settings/${settingsPage}` : "/settings";
 
     useEffect(() => {
@@ -280,7 +355,7 @@ const Settings = ({ theme, setTheme }) => {
                 if (active) setCoursesLoaded(true);
             });
         return () => { active = false; };
-    }, [courseSettingsRoute, isStaff, location.search, location.state]);
+    }, [courseSettingsRoute, isStaff, location.search, location.state, offlineRefresh]);
 
     const saveProfile = async (event) => {
         event.preventDefault();
@@ -419,7 +494,11 @@ const Settings = ({ theme, setTheme }) => {
     return (
         <div className="page-content settings-page">
             <header className="settings-header">
-                {!isSettingsHome && (
+                {showCourseSettings && courseReturnTo ? (
+                    <Link className="settings-back-link" to={courseReturnTo}>
+                        <FaArrowLeft aria-hidden="true" /> Back to manage course
+                    </Link>
+                ) : !isSettingsHome && (
                     <Link className="settings-back-link" to={parentSettingsPath}>
                         <FaArrowLeft aria-hidden="true" /> {settingsSubpage ? settingsPageTitles[settingsPage] : "Settings"}
                     </Link>
@@ -427,96 +506,36 @@ const Settings = ({ theme, setTheme }) => {
                 <h1>{settingsTitle}</h1>
             </header>
 
-            {isSettingsHome && (
-                <nav className="settings-options" aria-label="Settings">
-                    {isStaff && (
-                        <Link className="settings-option" to="/settings/courses" state={location.state}>
-                            <span className="settings-section-icon"><FaBookOpen /></span>
-                            <span><strong>Course settings</strong><small>Update course details and enrollment separately.</small></span>
-                        </Link>
+            {hasSettingsMenu && (
+                <>
+                    <label className="catalog-search settings-search">
+                        <FaSearch aria-hidden="true" />
+                        <span className="sr-only">Search settings</span>
+                        <input
+                            type="search"
+                            value={settingsSearch}
+                            onChange={(event) => setSettingsSearch(event.target.value)}
+                            placeholder="Search: profile, theme, courses"
+                        />
+                    </label>
+                    {!(showCourseSettings && !settingsSubpage) && (
+                        visibleSettingsOptions.length ? (
+                            <nav className="settings-options" aria-label="Settings options">
+                                {visibleSettingsOptions.map(({ to, title, description, Icon }) => (
+                                    <Link
+                                        className="settings-option"
+                                        key={to}
+                                        to={to}
+                                        state={isSettingsHome && to === "/settings/courses" ? location.state : undefined}
+                                    >
+                                        <span className="settings-section-icon"><Icon /></span>
+                                        <span><strong>{title}</strong><small>{description}</small></span>
+                                    </Link>
+                                ))}
+                            </nav>
+                        ) : <p className="empty-state">No settings match your search.</p>
                     )}
-                    <Link className="settings-option" to="/settings/profile">
-                        <span className="settings-section-icon"><FaUserCircle /></span>
-                        <span><strong>Profile</strong><small>Manage personal information and profile picture.</small></span>
-                    </Link>
-                    {user?.passwordLoginEnabled !== false && (
-                        <Link className="settings-option" to="/settings/security">
-                            <span className="settings-section-icon"><FaShieldAlt /></span>
-                            <span><strong>Security</strong><small>Manage your password settings.</small></span>
-                        </Link>
-                    )}
-                    <Link className="settings-option" to="/settings/preferences">
-                        <span className="settings-section-icon"><FaSlidersH /></span>
-                        <span><strong>Preferences</strong><small>Set your theme, text size, and motion preference.</small></span>
-                    </Link>
-                    <Link className="settings-option" to="/help-feedback">
-                        <span className="settings-section-icon"><FaLifeRing /></span>
-                        <span><strong>Help & Feedback</strong><small>Find role-specific guides or share feedback.</small></span>
-                    </Link>
-                </nav>
-            )}
-
-            {showProfileSettings && !settingsSubpage && (
-                <nav className="settings-options" aria-label="Profile settings">
-                    <Link className="settings-option" to="/settings/profile/name">
-                        <span className="settings-section-icon"><FaUserCircle /></span>
-                        <span><strong>Full name</strong><small>Update your account name.</small></span>
-                    </Link>
-                    <Link className="settings-option" to="/settings/profile/email">
-                        <span className="settings-section-icon"><FaUserCircle /></span>
-                        <span><strong>Email address</strong><small>Update your account email.</small></span>
-                    </Link>
-                    <Link className="settings-option" to="/settings/profile/picture">
-                        <span className="settings-section-icon"><FaUserCircle /></span>
-                        <span><strong>Profile picture</strong><small>Add or remove your account picture.</small></span>
-                    </Link>
-                    {user?.role === "student" && (
-                        <>
-                            <Link className="settings-option" to="/settings/profile/student-id">
-                                <span className="settings-section-icon"><FaUserCircle /></span>
-                                <span><strong>Student ID</strong><small>Update your matriculation number.</small></span>
-                            </Link>
-                            <Link className="settings-option" to="/settings/profile/phone">
-                                <span className="settings-section-icon"><FaUserCircle /></span>
-                                <span><strong>Phone number</strong><small>Update your contact number.</small></span>
-                            </Link>
-                        </>
-                    )}
-                </nav>
-            )}
-
-            {settingsPage === "security" && !settingsSubpage && user?.passwordLoginEnabled !== false && (
-                <nav className="settings-options" aria-label="Security settings">
-                    <Link className="settings-option" to="/settings/security/password">
-                        <span className="settings-section-icon"><FaShieldAlt /></span>
-                        <span><strong>Change password</strong><small>Update your account password.</small></span>
-                    </Link>
-                </nav>
-            )}
-
-            {showPreferences && !settingsSubpage && (
-                <nav className="settings-options" aria-label="Display preferences">
-                    <Link className="settings-option" to="/settings/preferences/appearance">
-                        <span className="settings-section-icon"><FaSun /></span>
-                        <span><strong>Color theme</strong><small>Choose light or dark mode.</small></span>
-                    </Link>
-                    <Link className="settings-option" to="/settings/preferences/text-size">
-                        <span className="settings-section-icon"><FaSlidersH /></span>
-                        <span><strong>Text size</strong><small>Adjust text size for your account.</small></span>
-                    </Link>
-                    <Link className="settings-option" to="/settings/preferences/motion">
-                        <span className="settings-section-icon"><FaMoon /></span>
-                        <span><strong>Reduce motion</strong><small>Limit interface animations.</small></span>
-                    </Link>
-                    <Link className="settings-option" to="/settings/preferences/home-page">
-                        <span className="settings-section-icon"><FaBookOpen /></span>
-                        <span><strong>Default page</strong><small>Choose where SmartCampus opens after login.</small></span>
-                    </Link>
-                    <Link className="settings-option" to="/settings/preferences/notifications">
-                        <span className="settings-section-icon"><FaSlidersH /></span>
-                        <span><strong>Notification badge</strong><small>Show or hide the unread count on the bell.</small></span>
-                    </Link>
-                </nav>
+                </>
             )}
 
             {showCourseSettings && !settingsSubpage && isStaff && <section className="settings-section">
@@ -533,10 +552,9 @@ const Settings = ({ theme, setTheme }) => {
                                 onChange={(event) => {
                                     const nextCourseId = event.target.value;
                                     setSelectedCourseId(nextCourseId);
-                                    navigate({
-                                        pathname: location.pathname,
-                                        search: `?courseId=${encodeURIComponent(nextCourseId)}`
-                                    }, { replace: true });
+                                    const nextSearch = new URLSearchParams({ courseId: nextCourseId });
+                                    if (courseReturnTo) nextSearch.set("returnTo", courseReturnTo);
+                                    navigate({ pathname: location.pathname, search: `?${nextSearch}` }, { replace: true });
                                 }}
                             >
                                 {courses.map((course) => (
@@ -545,49 +563,22 @@ const Settings = ({ theme, setTheme }) => {
                             </select>
                         </label>
                         {selectedCourse && (
-                            <nav className="settings-options" aria-label="Course settings">
-                                <Link
-                                    className="settings-option"
-                                    to={`/settings/courses/name?courseId=${encodeURIComponent(selectedCourseId)}`}
-                                >
-                                    <span className="settings-section-icon"><FaBookOpen /></span>
-                                    <span><strong>Course name</strong><small>Update the title displayed for this course.</small></span>
-                                </Link>
-                                <Link
-                                    className="settings-option" to={`/settings/courses/code?courseId=${encodeURIComponent(selectedCourseId)}`}
-                                >
-                                    <span className="settings-section-icon"><FaBookOpen /></span>
-                                    <span><strong>Academic course code</strong><small>Edit the course code.</small></span>
-                                </Link>
-                                <Link className="settings-option" to={`/settings/courses/category?courseId=${encodeURIComponent(selectedCourseId)}`}>
-                                    <span className="settings-section-icon"><FaBookOpen /></span>
-                                    <span><strong>Course category</strong><small>Set the category for this course.</small></span>
-                                </Link>
-                                <Link className="settings-option" to={`/settings/courses/description?courseId=${encodeURIComponent(selectedCourseId)}`}>
-                                    <span className="settings-section-icon"><FaBookOpen /></span>
-                                    <span><strong>Course description</strong><small>Edit the course description.</small></span>
-                                </Link>
-                                <Link className="settings-option" to={`/settings/courses/status?courseId=${encodeURIComponent(selectedCourseId)}`}>
-                                    <span className="settings-section-icon"><FaSlidersH /></span>
-                                    <span><strong>Course status</strong><small>Set this course active or archived.</small></span>
-                                </Link>
-                                <Link className="settings-option" to={`/settings/courses/enrollment?courseId=${encodeURIComponent(selectedCourseId)}`}>
-                                    <span className="settings-section-icon"><FaSlidersH /></span>
-                                    <span><strong>Enrollment</strong><small>Open or close enrollment.</small></span>
-                                </Link>
-                                <Link className="settings-option" to={`/settings/courses/start?courseId=${encodeURIComponent(selectedCourseId)}`}>
-                                    <span className="settings-section-icon"><FaSlidersH /></span>
-                                    <span><strong>Start date</strong><small>Set the course start date.</small></span>
-                                </Link>
-                                <Link className="settings-option" to={`/settings/courses/end?courseId=${encodeURIComponent(selectedCourseId)}`}>
-                                    <span className="settings-section-icon"><FaSlidersH /></span>
-                                    <span><strong>End date</strong><small>Set the course end date.</small></span>
-                                </Link>
-                                <Link className="settings-option" to={`/settings/courses/class-code?courseId=${encodeURIComponent(selectedCourseId)}`}>
-                                    <span className="settings-section-icon"><FaSlidersH /></span>
-                                    <span><strong>Enrollment class code</strong><small>View or regenerate the class code.</small></span>
-                                </Link>
-                            </nav>
+                            visibleSettingsOptions.length ? (
+                                <nav className="settings-options" aria-label="Course settings">
+                                    {visibleSettingsOptions.map(({ to, title, description, Icon }) => (
+                                        <Link
+                                            className="settings-option"
+                                            to={courseReturnTo
+                                                ? `${to}&returnTo=${encodeURIComponent(courseReturnTo)}`
+                                                : to}
+                                            key={to}
+                                        >
+                                            <span className="settings-section-icon"><Icon /></span>
+                                            <span><strong>{title}</strong><small>{description}</small></span>
+                                        </Link>
+                                    ))}
+                                </nav>
+                            ) : <p className="empty-state">No course settings match your search.</p>
                         )}
                     </>
                 ) : (
@@ -609,10 +600,9 @@ const Settings = ({ theme, setTheme }) => {
                                 onChange={(event) => {
                                     const nextCourseId = event.target.value;
                                     setSelectedCourseId(nextCourseId);
-                                    navigate({
-                                        pathname: location.pathname,
-                                        search: `?courseId=${encodeURIComponent(nextCourseId)}`
-                                    }, { replace: true });
+                                    const nextSearch = new URLSearchParams({ courseId: nextCourseId });
+                                    if (courseReturnTo) nextSearch.set("returnTo", courseReturnTo);
+                                    navigate({ pathname: location.pathname, search: `?${nextSearch}` }, { replace: true });
                                 }}
                             >
                                 {courses.map((course) => (
@@ -711,7 +701,6 @@ const Settings = ({ theme, setTheme }) => {
                                 autoComplete="tel"
                                 type="tel"
                                 maxLength={30}
-                                required
                                 value={profile.phone}
                                 onChange={(event) => setProfile({ ...profile, phone: event.target.value })}
                             />

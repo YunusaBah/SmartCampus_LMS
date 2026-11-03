@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { FaAward, FaBookOpen } from "react-icons/fa";
 import API from "../services/api";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
 
 const Certificates = () => {
+    const offlineRefresh = useOfflineRefresh();
     const [certificates, setCertificates] = useState([]);
     const [courses, setCourses] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -25,7 +27,7 @@ const Certificates = () => {
                 if (active) setLoading(false);
             });
         return () => { active = false; };
-    }, []);
+    }, [offlineRefresh]);
 
     const requestCertificate = async (courseId) => {
         setBusyCourse(courseId);
@@ -49,7 +51,6 @@ const Certificates = () => {
         <div className="page-content feature-page">
             <header className="feature-page-header">
                 <div><p className="eyebrow">YOUR ACHIEVEMENTS</p><h1>Certificates</h1></div>
-                <span className="grades-header-icon"><FaAward /></span>
             </header>
             {status && <p className="feature-status" role="status">{status}</p>}
             {loading ? <p className="dashboard-loading" role="status">Loading certificates...</p> : error ? (

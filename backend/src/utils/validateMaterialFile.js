@@ -3,6 +3,7 @@ const fs = require("fs/promises");
 const { TextDecoder } = require("util");
 
 const types = new Map([
+    [".zip", { mimeType: "application/zip", verify: isZip }],
     [".pdf", { mimeType: "application/pdf", verify: (buffer) => buffer.subarray(0, 5).toString() === "%PDF-" }],
     [".doc", { mimeType: "application/msword", verify: isOleDocument }],
     [".ppt", { mimeType: "application/vnd.ms-powerpoint", verify: isOleDocument }],

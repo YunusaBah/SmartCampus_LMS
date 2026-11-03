@@ -15,6 +15,10 @@ const Course = sequelize.define("Course", {
     enrollmentEnabled: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
     startDate: { type: DataTypes.DATEONLY, allowNull: true },
     endDate: { type: DataTypes.DATEONLY, allowNull: true },
+    classDays: { type: DataTypes.JSON, allowNull: true },
+    classStartTime: { type: DataTypes.STRING(5), allowNull: true },
+    classEndTime: { type: DataTypes.STRING(5), allowNull: true },
+    classTimeZone: { type: DataTypes.STRING(100), allowNull: true },
     classCode: { type: DataTypes.STRING(8), unique: true }
 }, {
     indexes: [{ fields: ["lecturerId", "createdAt"] }]

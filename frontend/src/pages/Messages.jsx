@@ -2,8 +2,10 @@ import { useEffect, useState } from "react";
 import { FaCommentDots, FaPaperPlane } from "react-icons/fa";
 import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
 
 const Messages = () => {
+    const offlineRefresh = useOfflineRefresh();
     const { user } = useAuth();
     const [courses, setCourses] = useState([]);
     const [courseId, setCourseId] = useState("");
@@ -33,7 +35,7 @@ const Messages = () => {
                 if (active) setLoading(false);
             });
         return () => { active = false; };
-    }, []);
+    }, [offlineRefresh]);
 
     useEffect(() => {
         if (!courseId) return;
@@ -52,7 +54,7 @@ const Messages = () => {
                 if (active) setError(requestError.response?.data?.message || "Unable to load classmates.");
             });
         return () => { active = false; };
-    }, [courseId]);
+    }, [courseId, offlineRefresh]);
 
     useEffect(() => {
         if (!courseId || !participantId) return;
@@ -65,7 +67,7 @@ const Messages = () => {
                 if (active) setError(requestError.response?.data?.message || "Unable to load this classmate conversation.");
             });
         return () => { active = false; };
-    }, [courseId, participantId]);
+    }, [courseId, offlineRefresh, participantId]);
 
     const sendMessage = async (event) => {
         event.preventDefault();
@@ -93,7 +95,6 @@ const Messages = () => {
                     <p className="eyebrow">COURSE COMMUNICATION</p>
                     <h1>Messages</h1>
                 </div>
-                <span className="grades-header-icon"><FaCommentDots /></span>
             </header>
             {error && <div className="dashboard-alert" role="alert">{error}</div>}
             {loading ? <p className="dashboard-loading" role="status">Loading classmates...</p> : !courses.length ? (

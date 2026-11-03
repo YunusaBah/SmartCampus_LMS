@@ -20,6 +20,22 @@ const helpArticles = [
         troubleshooting: "If a course or activity is missing, confirm you are signed in to the correct account and that you are enrolled in or responsible for that course."
     },
     {
+        id: "navigation",
+        category: "Getting started",
+        title: "How do I navigate SmartCampus LMS?",
+        roles: ["student", "lecturer"],
+        summary: "Find the sidebar, open a module, and move between your dashboard, courses, settings, and help.",
+        steps: [
+            "On a desktop, use the navigation sidebar on the left. On a phone, tap the menu button in the top bar to open the sidebar; tap a module to go there.",
+            "Choose Home to return to your dashboard, or Courses to find and open a course.",
+            "Inside a course, use the sidebar or course navigation to open Materials, Assignments, Quizzes, Calendar, and Announcements.",
+            "Students can open Grades, Assignments, and Quizzes from the sidebar to see their own coursework and results. Lecturers also have Students and Grades, with review and upload tools inside Assignments and Quizzes.",
+            "Choose Settings for profile and display preferences. From Settings, open Help & Feedback for step-by-step guides or to email private feedback to the developer."
+        ],
+        result: "The sidebar takes you between modules while keeping you signed in. Available modules depend on your role and course access.",
+        troubleshooting: "On a phone, the sidebar closes after you choose a module. Tap the top-bar menu again whenever you need another module. If a link is unavailable, check your role and course enrollment."
+    },
+    {
         id: "courses-student",
         category: "Courses",
         title: "How do I find or join a course?",
@@ -29,7 +45,7 @@ const helpArticles = [
             "Open Courses to see your enrolled courses.",
             "To browse courses, open the course catalog from the Courses page.",
             "To join by code, choose Join Class, enter the code supplied by your lecturer, and submit.",
-            "Open an enrolled course to see its overview and course sections."
+            "Open an enrolled course to go directly to its course materials."
         ],
         result: "A successful enrollment adds the course to your course list. Access to course activities depends on your enrollment.",
         troubleshooting: "Check that the class code was entered exactly as supplied and that enrollment is open. If joining is still unavailable, ask the course lecturer to confirm the code and enrollment settings."
@@ -42,7 +58,7 @@ const helpArticles = [
         summary: "Create a course and manage its details, enrollment, and learning sections.",
         steps: [
             "Open Courses and choose the create-course action.",
-            "Enter the course title and course contents, then submit the form.",
+            "Enter the course title, optional description, and class schedule, then submit the form.",
             "Open the created course to work with its materials, students, assignments, quizzes, calendar, and announcements.",
             "For course details or enrollment options, open Settings, then Course settings, and select the course to update."
         ],
@@ -244,18 +260,18 @@ const helpArticles = [
         troubleshooting: "Some profile fields and course settings differ by role. If an option is missing, check that it is available to your role and login method."
     },
     {
-        id: "todos-certificates",
-        category: "More student tools",
-        title: "How do I access to-dos and certificates?",
+        id: "assignment-status",
+        category: "Assignments",
+        title: "How do I check assignment status?",
         roles: ["student"],
-        summary: "Review your task list and access certificates issued for completed courses.",
+        summary: "Review assigned, missing, and completed coursework in one place.",
         steps: [
-            "Open To-dos to review tasks and their status.",
-            "Use the status view to focus on the relevant tasks when available.",
-            "Open Certificates to review certificates issued to your account."
+            "Open Assignments from the sidebar.",
+            "Choose Assigned, Missing, or Done to filter your coursework.",
+            "Open an assignment card to review its instructions, due date, and submission details."
         ],
-        result: "To-dos and certificates are limited to the activities and courses associated with your student account.",
-        troubleshooting: "A certificate appears only after it has been issued for an eligible course. Check course completion or ask your lecturer if you think one is missing."
+        result: "Assignment status is based on whether the deadline has passed and whether you have submitted the work.",
+        troubleshooting: "If an assignment is missing, check its due date or contact your lecturer."
     }
 ];
 
@@ -330,7 +346,12 @@ const HelpFeedback = () => {
                 topic: topic || undefined,
                 helpful
             });
-            setStatus({ type: "success", text: type === "helpfulness" ? "Thanks for letting us know." : "Thank you. Your feedback has been submitted." });
+            setStatus({
+                type: "success",
+                text: type === "helpfulness"
+                    ? "Thanks. Your help-center rating has been recorded."
+                    : "Your feedback was delivered to the developer's private email."
+            });
             return true;
         } catch (error) {
             setStatus({
@@ -373,7 +394,7 @@ const HelpFeedback = () => {
                 <div>
                     <p className="eyebrow">SMARTCAMPUS SUPPORT</p>
                     <h1>Help &amp; Feedback</h1>
-                    <p className="subtitle">Guides and answers for your {role || "SmartCampus"} account.</p>
+                    <p className="subtitle">Search step-by-step guides for your {role || "SmartCampus"} account, or send feedback directly to the developer's private email.</p>
                 </div>
                 {role && <span className="help-feedback-role">{role}</span>}
             </header>
@@ -417,6 +438,7 @@ const HelpFeedback = () => {
                             </div>
                             <div className="helpfulness-prompt">
                                 <h3>Did this answer your question or help you?</h3>
+                                <p>Your yes/no answer is recorded to improve the help articles. To send a private message, choose Share feedback.</p>
                                 {helpfulness ? (
                                     <p role="status">Thanks for letting us know.</p>
                                 ) : (
@@ -439,7 +461,7 @@ const HelpFeedback = () => {
                             <label className="help-search">
                                 <FaSearch aria-hidden="true" />
                                 <span className="sr-only">Search help topics</span>
-                                <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search modules, questions, or tasks" />
+                                <input type="search" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search: modules, questions, tasks" />
                             </label>
                             <div className="help-category-list" aria-label="Help categories">
                                 {categories.map((category) => (
@@ -479,7 +501,7 @@ const HelpFeedback = () => {
                         <span className="settings-section-icon"><FaStar aria-hidden="true" /></span>
                         <div>
                             <h2>How is your SmartCampus experience?</h2>
-                            <p>Your rating helps us improve the platform for students and lecturers.</p>
+                            <p>Your rating and message are emailed directly to the developer’s private email. If delivery is unavailable, you will see an error instead of a success message.</p>
                         </div>
                     </div>
                     {status?.type === "success" ? (
@@ -511,19 +533,13 @@ const HelpFeedback = () => {
                             {rating > 0 && (
                                 <label className="help-feedback-comment">
                                     {rating >= 4 ? "What is working well for you?" : rating === 3 ? "What could make your experience better?" : "What should we improve first?"}
-                                    <textarea value={comment} onChange={(event) => setComment(event.target.value)} maxLength={2000} rows={5} placeholder="Tell us more (optional)" />
-                                    <small>You can skip this and submit your rating alone. {comment.length}/2000</small>
+                                    <textarea value={comment} onChange={(event) => { setComment(event.target.value); setStatus(null); }} maxLength={2000} rows={5} placeholder="Write your feedback message here..." required />
+                                    <small>Your message is required. {comment.length}/2000</small>
                                 </label>
                             )}
                             {status?.type === "error" && <p className="help-status error" role="alert">{status.text}</p>}
                             <div className="help-feedback-actions">
-                                <button type="submit" className="btn btn-inline" disabled={rating === 0 || submitting}>{submitting ? "Submitting..." : "Submit feedback"}</button>
-                                {rating > 0 && !comment.trim() && (
-                                    <button type="button" className="btn btn-inline btn-secondary" disabled={submitting} onClick={submitProductFeedback}>
-                                        Skip written response
-                                    </button>
-                                )}
-                                {rating > 0 && !comment.trim() && <span className="help-skip-note">Written feedback skipped; your rating will still be submitted.</span>}
+                                <button type="submit" className="btn btn-inline" disabled={rating === 0 || !comment.trim() || submitting}>{submitting ? "Sending..." : "Send feedback"}</button>
                             </div>
                         </form>
                     )}

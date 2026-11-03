@@ -1,6 +1,7 @@
 const DATABASE_NAME = "smartcampus-offline";
 const STORE_NAME = "api-responses";
-const CACHE_MAX_AGE = 5 * 60 * 1000;
+const CACHE_FRESH_MS = 5_000;
+const memoryCache = new Map();
 let databasePromise;
 
 const openDatabase = () => {
@@ -29,28 +30,38 @@ const openDatabase = () => {
 };
 
 export const readOfflineResponse = async (key) => {
+    if (memoryCache.has(key)) return memoryCache.get(key);
     const database = await openDatabase();
     return new Promise((resolve, reject) => {
         const request = database.transaction(STORE_NAME, "readonly").objectStore(STORE_NAME).get(key);
-        request.onsuccess = () => resolve(request.result || null);
+        request.onsuccess = () => {
+            const entry = request.result || null;
+            if (entry) memoryCache.set(key, entry);
+            resolve(entry);
+        };
         request.onerror = () => reject(request.error || new Error("Could not read saved offline data."));
     });
 };
 
 export const saveOfflineResponse = async (key, data) => {
+    const entry = { key, data, savedAt: Date.now() };
+    memoryCache.set(key, entry);
     const database = await openDatabase();
     return new Promise((resolve, reject) => {
-        const request = database.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME).put({
-            key,
-            data,
-            savedAt: Date.now()
-        });
+        const request = database.transaction(STORE_NAME, "readwrite").objectStore(STORE_NAME).put(entry);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error || new Error("Could not save offline data."));
     });
 };
 
+export const isFreshOfflineResponse = (entry) =>
+    Boolean(entry && Date.now() - entry.savedAt < CACHE_FRESH_MS);
+
 export const clearOfflineResponsesForAccount = async (accountId) => {
+    for (const key of memoryCache.keys()) {
+        if (key.startsWith(`${accountId}:`)) memoryCache.delete(key);
+    }
+
     const database = await openDatabase();
     return new Promise((resolve, reject) => {
         const transaction = database.transaction(STORE_NAME, "readwrite");
@@ -68,5 +79,25 @@ export const clearOfflineResponsesForAccount = async (accountId) => {
     });
 };
 
-export const isFreshOfflineResponse = (entry) =>
-    Boolean(entry && Date.now() - entry.savedAt < CACHE_MAX_AGE);
+export const invalidateOfflineResponsesForAccount = async (accountId) => {
+    for (const [key, entry] of memoryCache) {
+        if (key.startsWith(`${accountId}:`)) memoryCache.set(key, { ...entry, savedAt: 0 });
+    }
+
+    const database = await openDatabase();
+    return new Promise((resolve, reject) => {
+        const transaction = database.transaction(STORE_NAME, "readwrite");
+        const request = transaction.objectStore(STORE_NAME).openCursor();
+        request.onsuccess = () => {
+            const cursor = request.result;
+            if (!cursor) return;
+            if (cursor.key.startsWith(`${accountId}:`)) {
+                cursor.update({ ...cursor.value, savedAt: 0 });
+            }
+            cursor.continue();
+        };
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error || new Error("Could not refresh saved offline data."));
+        transaction.onabort = () => reject(transaction.error || new Error("Could not refresh saved offline data."));
+    });
+};

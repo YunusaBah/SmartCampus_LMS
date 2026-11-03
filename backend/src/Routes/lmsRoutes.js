@@ -17,6 +17,8 @@ router.post("/courses/:courseId/announcements", lmsController.createAnnouncement
 router.post("/announcements/:id/view", requireRole("student"), lmsController.markAnnouncementViewed);
 router.get("/announcements/:id/activity", lmsController.getAnnouncementActivity);
 router.put("/announcements/:id/reaction", lmsController.setAnnouncementReaction);
+router.post("/announcements/:id/comments", lmsController.createAnnouncementComment);
+router.put("/announcements/comments/:id/reaction", lmsController.setAnnouncementCommentReaction);
 router.patch("/announcements/:id", requireRole("lecturer"), lmsController.updateAnnouncement);
 router.delete("/announcements/:id", requireRole("lecturer"), lmsController.deleteAnnouncement);
 router.get("/announcements/my", requireRole("student"), lmsController.listMyAnnouncements);
@@ -35,6 +37,7 @@ router.patch("/notifications/:id/read", lmsController.markNotificationRead);
 router.get("/calendar", lmsController.listMyCalendar);
 router.get("/courses/:courseId/calendar", lmsController.listCalendarEvents);
 router.post("/courses/:courseId/calendar", requireRole("lecturer"), lmsController.createCalendarEvent);
+router.patch("/courses/:courseId/calendar/classes/:date", requireRole("lecturer"), lmsController.updateClassOccurrence);
 router.patch("/calendar/:id", requireRole("lecturer"), lmsController.updateCalendarEvent);
 router.delete("/calendar/:id", requireRole("lecturer"), lmsController.deleteCalendarEvent);
 

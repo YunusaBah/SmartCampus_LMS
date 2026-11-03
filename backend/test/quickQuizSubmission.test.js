@@ -64,7 +64,10 @@ test("quick quiz answer can be submitted only once", async () => {
     const second = await submit();
 
     assert.equal(first.statusCode, 200);
-    assert.equal(first.body.passed, true);
+    assert.deepEqual(first.body, { message: "Quiz submitted" });
+    assert.equal("score" in first.body, false);
+    assert.equal("passed" in first.body, false);
+    assert.equal("result" in first.body, false);
     assert.equal(second.statusCode, 409);
     assert.match(second.body.message, /already submitted.*final/i);
     assert.equal(createCount, 1);

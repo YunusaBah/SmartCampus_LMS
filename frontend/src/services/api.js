@@ -1,12 +1,13 @@
 import axios from "axios";
 import API_BASE from "../config";
 import {
-    clearOfflineResponsesForAccount,
+    invalidateOfflineResponsesForAccount,
     isFreshOfflineResponse,
     readOfflineResponse,
     saveOfflineResponse
 } from "./offlineCache";
 
+const backgroundRefreshes = new Set();
 const API = axios.create({
     baseURL: `${API_BASE}/api`,
     timeout: 90000,
@@ -45,49 +46,74 @@ const cacheKeyFor = (accountId, url, config) => {
     return `${accountId}:${API.getUri(requestConfig)}`;
 };
 
-API.get = async (url, config = {}) => {
+API.get = (url, config = {}) => {
+    const { skipOfflineCache, ...networkConfig } = config;
+    if (skipOfflineCache) return requestNetworkGet(url, {
+        ...networkConfig,
+        timeout: networkConfig.timeout ?? 15000
+    });
+
     const accountId = getAccountId();
     if (!accountId) return requestNetworkGet(url, config);
 
     const cacheKey = cacheKeyFor(accountId, url, config);
-    let cachedEntry = null;
-    try {
-        cachedEntry = await readOfflineResponse(cacheKey);
-    } catch (error) {
-        console.warn("Could not read SmartCampus offline cache:", error);
-    }
-
-    if (cachedEntry && (!navigator.onLine || isFreshOfflineResponse(cachedEntry))) {
+    const cacheNetworkConfig = {
+        ...networkConfig,
+        timeout: networkConfig.timeout ?? 15000
+    };
+    const returnCachedResponse = (cachedEntry) => {
+        if (navigator.onLine && !isFreshOfflineResponse(cachedEntry) && !backgroundRefreshes.has(cacheKey)) {
+            backgroundRefreshes.add(cacheKey);
+            const refreshConfig = { ...cacheNetworkConfig };
+            delete refreshConfig.signal;
+            requestNetworkGet(url, refreshConfig)
+                .then(async (response) => {
+                    await saveOfflineResponse(cacheKey, response.data);
+                    if (!(typeof Blob !== "undefined" && response.data instanceof Blob)) {
+                        window.dispatchEvent(new CustomEvent("smartcampus:offline-cache-updated", {
+                            detail: { url }
+                        }));
+                    }
+                })
+                .catch((error) => {
+                    if (!error.response || error.response.status >= 500) {
+                        window.dispatchEvent(new Event("smartcampus:api-offline"));
+                    }
+                })
+                .finally(() => backgroundRefreshes.delete(cacheKey));
+        }
         return toCachedResponse(cachedEntry, config);
-    }
+    };
 
-    try {
-        const response = await requestNetworkGet(url, config);
-        try {
-            await saveOfflineResponse(cacheKey, response.data);
-        } catch (error) {
-            console.warn("Could not save SmartCampus offline data:", error);
-        }
-        return response;
-    } catch (error) {
-        if (!cachedEntry && (!error.response || error.response.status >= 500)) {
+    const cachedEntry = readOfflineResponse(cacheKey).catch((error) => {
+        console.warn("Could not read SmartCampus offline cache:", error);
+        return null;
+    });
+
+    return cachedEntry.then((entry) => {
+        if (entry) return returnCachedResponse(entry);
+        return requestNetworkGet(url, cacheNetworkConfig).then(async (response) => {
             try {
-                cachedEntry = await readOfflineResponse(cacheKey);
-            } catch (cacheError) {
-                console.warn("Could not read SmartCampus offline cache:", cacheError);
+                await saveOfflineResponse(cacheKey, response.data);
+            } catch (error) {
+                console.warn("Could not save SmartCampus offline data:", error);
             }
-        }
-
-        if (cachedEntry && (!error.response || error.response.status >= 500)) {
-            window.dispatchEvent(new Event("smartcampus:api-offline"));
-            return toCachedResponse(cachedEntry, config);
-        }
-        throw error;
-    }
+            return response;
+        }).catch((error) => {
+            if (!error.response || error.response.status >= 500) {
+                window.dispatchEvent(new Event("smartcampus:api-offline"));
+            }
+            throw error;
+        });
+    });
 };
 
 API.interceptors.request.use(
     (config) => {
+        if (config.method !== "get" && !navigator.onLine) {
+            return Promise.reject(new Error("You are offline. Reconnect to save changes."));
+        }
+
         const token = localStorage.getItem("token");
 
         if (token) {
@@ -100,15 +126,13 @@ API.interceptors.request.use(
 );
 
 API.interceptors.response.use(
-    async (response) => {
+    (response) => {
         if (response.config.method !== "get") {
             const accountId = getAccountId();
             if (accountId) {
-                try {
-                    await clearOfflineResponsesForAccount(accountId);
-                } catch (error) {
-                    console.warn("Could not refresh SmartCampus offline data:", error);
-                }
+                invalidateOfflineResponsesForAccount(accountId)
+                    .catch((error) => console.warn("Could not mark SmartCampus offline data for refresh:", error));
+                window.dispatchEvent(new Event("smartcampus:offline-cache-updated"));
             }
         }
         return response;
@@ -120,7 +144,13 @@ API.interceptors.response.use(
             window.dispatchEvent(new Event("smartcampus:account-changed"));
 
             if (window.location.pathname !== "/login") {
-                window.location.href = "/login";
+                const invitationCode = window.location.pathname === "/invite"
+                    ? new URLSearchParams(window.location.search).get("code")
+                    : null;
+                const loginPath = invitationCode
+                    ? `/login?join=${encodeURIComponent(invitationCode)}`
+                    : "/login";
+                window.location.href = loginPath;
             }
         }
 

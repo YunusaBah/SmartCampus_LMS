@@ -155,10 +155,55 @@ const verifyGoogleCredential = async (credential) => {
     return { email, fullName, googleId: claims.sub };
 };
 
-exports.register = async (_req, res) => {
-    return res.status(410).json({
-        message: "New accounts must be created with a verified Google account."
-    });
+exports.register = async (req, res) => {
+    try {
+        const { fullName, email, password, role, matNumber, phone } = req.body;
+        const normalizedName = normalizeName(fullName);
+        const normalizedEmail = normalizeEmail(email);
+        if (!normalizedName || !normalizedEmail || !validatePassword(password) ||
+            !["student", "lecturer"].includes(role)) {
+            return res.status(400).json({
+                message: "Enter a valid name, email, password (at least 6 characters), and account type."
+            });
+        }
+
+        let normalizedMatNumber = null;
+        let normalizedPhone = null;
+        if (role === "student") {
+            normalizedMatNumber = normalizeStudentId(matNumber);
+            const phoneProvided = phone !== undefined && phone !== null && phone !== "";
+            normalizedPhone = phoneProvided ? normalizePhone(phone) : null;
+            if (!normalizedMatNumber || (phoneProvided && !normalizedPhone)) {
+                return res.status(400).json({
+                    message: "Enter a valid student ID number and, if provided, a valid phone number."
+                });
+            }
+        }
+
+        const existingUser = await User.findOne({ where: { email: normalizedEmail } });
+        if (existingUser) {
+            return res.status(409).json({ message: "An account with this email already exists" });
+        }
+
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await User.create({
+            fullName: normalizedName,
+            email: normalizedEmail,
+            password: hashedPassword,
+            passwordLoginEnabled: true,
+            role,
+            matNumber: role === "student" ? normalizedMatNumber : null,
+            phone: role === "student" ? normalizedPhone : null
+        });
+
+        return issueSession(user, res, 201);
+    } catch (error) {
+        if (error.name === "SequelizeUniqueConstraintError") {
+            return res.status(409).json({ message: "An account with this email already exists" });
+        }
+        console.error("Registration failed:", error);
+        return res.status(500).json({ message: "Registration failed" });
+    }
 };
 
 exports.googleRegister = async (req, res) => {
@@ -194,10 +239,11 @@ exports.googleRegister = async (req, res) => {
         let normalizedPhone = null;
         if (role === "student") {
             normalizedMatNumber = normalizeStudentId(matNumber);
-            normalizedPhone = normalizePhone(phone);
-            if (!normalizedMatNumber || !normalizedPhone) {
+            const phoneProvided = phone !== undefined && phone !== null && phone !== "";
+            normalizedPhone = phoneProvided ? normalizePhone(phone) : null;
+            if (!normalizedMatNumber || (phoneProvided && !normalizedPhone)) {
                 return res.status(400).json({
-                    message: "Student ID number and a valid phone number are required"
+                    message: "Enter a valid student ID number and, if provided, a valid phone number."
                 });
             }
         }
@@ -439,9 +485,12 @@ exports.updateProfile = async (req, res) => {
         user.email = normalizedEmail;
         if (user.role === "student") {
             const normalizedMatNumber = normalizeStudentId(matNumber);
-            const normalizedPhone = normalizePhone(phone);
-            if (!normalizedMatNumber || !normalizedPhone) {
-                return res.status(400).json({ message: "Student ID number and phone number are required" });
+            const phoneProvided = phone !== undefined && phone !== null && phone !== "";
+            const normalizedPhone = phoneProvided ? normalizePhone(phone) : null;
+            if (!normalizedMatNumber || (phoneProvided && !normalizedPhone)) {
+                return res.status(400).json({
+                    message: "Enter a valid student ID number and, if provided, a valid phone number."
+                });
             }
             user.matNumber = normalizedMatNumber;
             user.phone = normalizedPhone;

@@ -1,6 +1,18 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const AdmZip = require("adm-zip");
 const validateMaterialFile = require("../src/utils/validateMaterialFile");
+
+test("validates ZIP archives", async () => {
+    const zip = new AdmZip();
+    zip.addFile("project/src/main.txt", Buffer.from("source code"));
+    const buffer = zip.toBuffer();
+    assert.deepEqual(await validateMaterialFile({
+        originalname: "project.zip",
+        buffer,
+        size: buffer.length
+    }), { mimeType: "application/zip", fileSize: buffer.length });
+});
 
 test("validates file signatures and returns trusted metadata", async () => {
     const pdf = Buffer.from("%PDF-1.7\nsample");

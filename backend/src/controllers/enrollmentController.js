@@ -12,9 +12,9 @@ exports.joinByCode = async (req, res) => {
         const student = await User.findByPk(req.user.id, {
             attributes: ["fullName", "email", "matNumber", "phone"]
         });
-        if (!student || !student.fullName || !student.email || !student.matNumber || !student.phone) {
+        if (!student || !student.fullName || !student.email || !student.matNumber) {
             return res.status(400).json({
-                message: "Complete your name, email, student ID, and phone number before joining a class."
+                message: "Complete your name, email, and student ID before joining a class."
             });
         }
 
@@ -33,20 +33,44 @@ exports.joinByCode = async (req, res) => {
         }
 
         const already = await Enrollment.findOne({ where: { studentId: req.user.id, courseId: course.id } });
-        if (already) return res.status(409).json({ message: "You are already enrolled in this class." });
-
-        await Enrollment.create({ studentId: req.user.id, courseId: course.id, permissions: [] });
+        if (!already) {
+            await Enrollment.create({ studentId: req.user.id, courseId: course.id, permissions: [] });
+        }
         const courseData = course.toJSON();
         delete courseData.classCode;
         courseData.hasContentFile = Boolean(courseData.contentFileUrl);
         delete courseData.contentFileUrl;
-        res.status(201).json({ message: "Joined successfully!", course: courseData });
+        res.status(already ? 200 : 201).json({
+            message: already ? "You are already enrolled in this class." : "Joined successfully!",
+            course: courseData
+        });
     } catch (error) {
         if (error.name === "SequelizeUniqueConstraintError") {
-            return res.status(409).json({ message: "You are already enrolled in this class." });
+            return res.status(409).json({ message: "You are already enrolled in this class. Open the course from your dashboard." });
         }
         console.error("Failed to join course:", error);
         res.status(500).json({ message: "Failed to join course" });
+    }
+};
+
+exports.leaveCourse = async (req, res) => {
+    const courseId = Number(req.params.courseId);
+    if (!Number.isSafeInteger(courseId) || courseId <= 0) {
+        return res.status(400).json({ message: "Invalid course ID" });
+    }
+
+    try {
+        const deleted = await Enrollment.destroy({
+            where: { studentId: req.user.id, courseId }
+        });
+        if (!deleted) return res.status(404).json({ message: "You are not enrolled in this course" });
+
+        res.json({
+            message: "You have left the course. Your submissions, grades, and reading progress have been preserved."
+        });
+    } catch (error) {
+        console.error("Failed to leave course:", error);
+        res.status(500).json({ message: "Failed to leave course" });
     }
 };
 

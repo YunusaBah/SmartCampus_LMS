@@ -1,4 +1,5 @@
 const Lesson = require("../models/Lesson");
+const LessonNote = require("../models/LessonNote");
 const Course = require("../models/Course");
 const Enrollment = require("../models/Enrollment");
 const User = require("../models/User");
@@ -237,6 +238,7 @@ exports.deleteLesson = async (req, res) => {
         }
         const fileUrl = lesson.fileUrl;
         await sequelize.transaction(async (transaction) => {
+            await LessonNote.destroy({ where: { lessonId: lesson.id }, transaction });
             await LessonProgress.destroy({ where: { lessonId: lesson.id }, transaction });
             await lesson.destroy({ transaction });
         });
@@ -245,6 +247,48 @@ exports.deleteLesson = async (req, res) => {
     } catch (error) {
         console.error("Failed to delete course material:", error);
         return res.status(500).json({ message: "Failed to delete course material" });
+    }
+};
+
+exports.getPrivateNote = async (req, res) => {
+    try {
+        const lesson = await Lesson.findByPk(req.params.id);
+        if (!lesson) return res.status(404).json({ message: "Course material not found" });
+
+        const access = await getCourseAccess(lesson.courseId, req.user);
+        if (access.status) return res.status(access.status).json({ message: access.message });
+
+        const note = await LessonNote.findOne({
+            where: { lessonId: lesson.id, userId: req.user.id }
+        });
+        return res.json({ note: note?.content || "" });
+    } catch (error) {
+        console.error("Failed to load private material note:", error);
+        return res.status(500).json({ message: "Failed to load private material note" });
+    }
+};
+
+exports.savePrivateNote = async (req, res) => {
+    try {
+        const lesson = await Lesson.findByPk(req.params.id);
+        if (!lesson) return res.status(404).json({ message: "Course material not found" });
+
+        const access = await getCourseAccess(lesson.courseId, req.user);
+        if (access.status) return res.status(access.status).json({ message: access.message });
+
+        if (typeof req.body.note !== "string" || req.body.note.length > 60000) {
+            return res.status(400).json({ message: "Private notes must be text of at most 60000 characters" });
+        }
+
+        await LessonNote.upsert({
+            lessonId: lesson.id,
+            userId: req.user.id,
+            content: req.body.note
+        }, { conflictFields: ["lessonId", "userId"] });
+        return res.json({ message: "Private note saved", note: req.body.note });
+    } catch (error) {
+        console.error("Failed to save private material note:", error);
+        return res.status(500).json({ message: "Failed to save private material note" });
     }
 };
 

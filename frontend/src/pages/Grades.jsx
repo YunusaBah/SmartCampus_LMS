@@ -1,8 +1,13 @@
-import { useEffect, useState } from "react";
-import { FaChartLine, FaClipboardCheck, FaArrowLeft, FaArrowRight } from "react-icons/fa";
+import { useEffect, useMemo, useState } from "react";
+import { FaClipboardCheck, FaArrowLeft, FaArrowRight, FaFileExcel, FaSearch } from "react-icons/fa";
 import API from "../services/api";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
+import { useAuth } from "../hooks/useAuth";
+import ReportExportDialog from "../components/ReportExportDialog";
 
 const Grades = () => {
+    const offlineRefresh = useOfflineRefresh();
+    const { isStaff } = useAuth();
     const [data, setData] = useState({
         quizResults: [],
         assessmentResults: [],
@@ -14,8 +19,59 @@ const Grades = () => {
     const [activeTab, setActiveTab] = useState("quizzes");
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState("");
+    const [lecturerRows, setLecturerRows] = useState([]);
+    const [lecturerCourses, setLecturerCourses] = useState([]);
+    const [search, setSearch] = useState("");
+    const [courseFilter, setCourseFilter] = useState("all");
+    const [sortBy, setSortBy] = useState("name");
+    const [reportOpen, setReportOpen] = useState(false);
 
     useEffect(() => {
+        if (!isStaff) return undefined;
+        let active = true;
+        const loadLecturerGrades = async () => {
+            setLoading(true);
+            setError("");
+            try {
+                const response = await API.get("/courses/my");
+                const courses = response.data;
+                const gradebooks = await Promise.all(courses.map((course) =>
+                    API.get(`/courses/${course.id}/gradebook`)
+                ));
+                if (!active) return;
+                setLecturerCourses(courses);
+                setLecturerRows(gradebooks.flatMap((gradebookResponse) => {
+                    const gradebook = gradebookResponse.data;
+                    return gradebook.students.map((student) => ({
+                        id: `${gradebook.course.id}:${student.id}`,
+                        studentId: student.id,
+                        fullName: student.fullName,
+                        matNumber: student.matNumber || "",
+                        courseId: String(gradebook.course.id),
+                        courseTitle: gradebook.course.title,
+                        timed: student.assessmentAttempts.map((attempt) =>
+                            `${attempt.assessment?.title || "Timed assignment"}: ${attempt.score ?? "Pending"}${attempt.totalMarks != null ? `/${attempt.totalMarks}` : ""}${attempt.theoryPending ? " (awaiting review)" : ""}`
+                        ).join("; ") || "—",
+                        classwork: student.assignments.filter((item) => item.workType === "classwork").map(({ title, submission }) =>
+                            `${title}: ${submission && submission.grade !== "Pending" ? submission.grade : submission ? "Awaiting grade" : "Not submitted"}`
+                        ).join("; ") || "—",
+                        assignment: student.assignments.filter((item) => item.workType !== "classwork").map(({ title, submission }) =>
+                            `${title}: ${submission && submission.grade !== "Pending" ? submission.grade : submission ? "Awaiting grade" : "Not submitted"}`
+                        ).join("; ") || "—"
+                    }));
+                }));
+            } catch (requestError) {
+                if (active) setError(requestError.response?.data?.message || "Unable to load course grades.");
+            } finally {
+                if (active) setLoading(false);
+            }
+        };
+        loadLecturerGrades();
+        return () => { active = false; };
+    }, [isStaff, offlineRefresh]);
+
+    useEffect(() => {
+        if (isStaff) return undefined;
         let active = true;
 
         API.get("/dashboard/grades", { params: pages })
@@ -61,7 +117,76 @@ const Grades = () => {
             });
 
         return () => { active = false; };
-    }, [pages]);
+    }, [isStaff, offlineRefresh, pages]);
+
+    const filteredLecturerRows = useMemo(() => lecturerRows
+        .filter((row) =>
+            (courseFilter === "all" || row.courseId === courseFilter) &&
+            `${row.fullName} ${row.matNumber} ${row.courseTitle} ${row.timed} ${row.classwork} ${row.assignment}`
+                .toLowerCase().includes(search.trim().toLowerCase())
+        )
+        .sort((left, right) => {
+            const leftValue = sortBy === "matNumber" ? left.matNumber : left.fullName;
+            const rightValue = sortBy === "matNumber" ? right.matNumber : right.fullName;
+            return leftValue.localeCompare(rightValue, undefined, { numeric: true, sensitivity: "base" });
+        }), [courseFilter, lecturerRows, search, sortBy]);
+
+    if (isStaff) {
+        if (loading) return <div className="page-content dashboard-loading" role="status">Loading course grades...</div>;
+        if (error) return <div className="page-content"><div className="dashboard-alert" role="alert"><strong>Grades couldn't be loaded.</strong><span>{error}</span></div></div>;
+        const reportColumns = [
+            { key: "no", label: "No.", value: (_row, index) => index + 1 },
+            { key: "fullName", label: "Full name" },
+            { key: "matNumber", label: "Mat. number" },
+            { key: "courseTitle", label: "Course" },
+            { key: "timed", label: "Timed assignment" },
+            { key: "classwork", label: "Classwork" },
+            { key: "assignment", label: "Assignment" }
+        ];
+        return (
+            <div className="page-content grades-page lecturer-grades-page">
+                <header className="grades-header">
+                    <div><p className="eyebrow">TEACHING</p><h1>Grades</h1></div>
+                    <button type="button" className="btn btn-inline" onClick={() => setReportOpen(true)} disabled={!filteredLecturerRows.length}>
+                        <FaFileExcel aria-hidden="true" /> Report
+                    </button>
+                </header>
+                <div className="student-list-controls gradebook-controls">
+                    <label className="catalog-search">
+                        <FaSearch aria-hidden="true" />
+                        <span className="sr-only">Search grades by student, course, or work</span>
+                        <input type="search" placeholder="Search: name, mat. number, course, grades" value={search} onChange={(event) => setSearch(event.target.value)} />
+                    </label>
+                    <label className="materials-course-filter"><span>Course</span>
+                        <select value={courseFilter} onChange={(event) => setCourseFilter(event.target.value)}>
+                            <option value="all">All courses</option>
+                            {lecturerCourses.map((course) => <option key={course.id} value={String(course.id)}>{course.title}</option>)}
+                        </select>
+                    </label>
+                    <label className="materials-course-filter"><span>Sort by</span>
+                        <select value={sortBy} onChange={(event) => setSortBy(event.target.value)}>
+                            <option value="name">Name (A-Z)</option>
+                            <option value="matNumber">Matric number</option>
+                        </select>
+                    </label>
+                </div>
+                {filteredLecturerRows.length ? (
+                    <div className="records-table-scroll gradebook-table-scroll">
+                        <table className="records-table gradebook-table">
+                            <thead><tr>{reportColumns.map((column) => <th scope="col" key={column.key}>{column.label}</th>)}</tr></thead>
+                            <tbody>{filteredLecturerRows.map((row, index) => (
+                                <tr key={row.id}>
+                                    <td>{index + 1}</td><td>{row.fullName}</td><td>{row.matNumber || "—"}</td><td>{row.courseTitle}</td>
+                                    <td>{row.timed}</td><td>{row.classwork}</td><td>{row.assignment}</td>
+                                </tr>
+                            ))}</tbody>
+                        </table>
+                    </div>
+                ) : <div className="grade-empty"><FaClipboardCheck aria-hidden="true" /><strong>{lecturerRows.length ? "No grades match your filters" : "No student grades available yet"}</strong></div>}
+                {reportOpen && <ReportExportDialog title="Export grade report" reportType="grades" columns={reportColumns} rows={filteredLecturerRows} onClose={() => setReportOpen(false)} />}
+            </div>
+        );
+    }
 
     if (loading) {
         return <div className="page-content dashboard-loading" role="status">Loading your grades...</div>;
@@ -107,7 +232,6 @@ const Grades = () => {
                     <p className="eyebrow">YOUR PERFORMANCE</p>
                     <h1>Grades</h1>
                 </div>
-                <span className="grades-header-icon" aria-hidden="true"><FaChartLine /></span>
             </header>
 
             <section className="grade-summary" aria-label="Grade summary">
@@ -175,7 +299,7 @@ const Grades = () => {
                         <table className="records-table">
                             <thead>
                                 <tr>
-                                    <th scope="col">No.</th>
+                                    <th scope="col" className="table-number-column">No.</th>
                                     <th scope="col">Quiz question</th>
                                                     <th scope="col">Course</th>
                                                     <th scope="col">Your answer</th>
@@ -185,7 +309,7 @@ const Grades = () => {
                             <tbody>
                                 {data.quizResults.map((result, index) => (
                                     <tr key={result.id}>
-                                        <td>{(data.pagination.quizPage - 1) * data.pagination.pageSize + index + 1}</td>
+                                        <td className="table-number-column">{(data.pagination.quizPage - 1) * data.pagination.pageSize + index + 1}</td>
                                         <td>{result.quiz?.question || "Quiz question"}</td>
                                         <td>{result.quiz?.course?.title || "Course"}</td>
                                         <td>{result.selectedAnswer}</td>
@@ -214,7 +338,7 @@ const Grades = () => {
                         <table className="records-table">
                             <thead>
                                 <tr>
-                                    <th scope="col">No.</th>
+                                    <th scope="col" className="table-number-column">No.</th>
                                     <th scope="col">Assessment</th>
                                     <th scope="col">Course</th>
                                     <th scope="col">Submitted</th>
@@ -226,7 +350,7 @@ const Grades = () => {
                             <tbody>
                                 {data.assessmentResults.map((attempt, index) => (
                                     <tr key={attempt.id}>
-                                        <td>{(data.pagination.assessmentPage - 1) * data.pagination.pageSize + index + 1}</td>
+                                        <td className="table-number-column">{(data.pagination.assessmentPage - 1) * data.pagination.pageSize + index + 1}</td>
                                         <td>{attempt.assessment?.title || "Timed assessment"}</td>
                                         <td>{attempt.assessment?.course?.title || "Course"}</td>
                                         <td>{new Date(attempt.submittedAt).toLocaleDateString()}</td>
@@ -251,7 +375,7 @@ const Grades = () => {
 
             {activeTab === "coursework" && <section className="grades-section" role="tabpanel" id="grades-panel-coursework" aria-labelledby="grades-tab-coursework">
                 <div className="section-heading">
-                    <div><p className="eyebrow">COURSE WORK</p><h2>Assignment submissions</h2></div>
+                    <div><p className="eyebrow">COURSE WORK</p><h2>Assignments and classwork</h2></div>
                     <span className="grades-section-count">{data.summary.submissionCount}</span>
                 </div>
                 {data.submissions.length ? (
@@ -259,7 +383,7 @@ const Grades = () => {
                         <table className="records-table">
                             <thead>
                                 <tr>
-                                    <th scope="col">No.</th>
+                                    <th scope="col" className="table-number-column">No.</th>
                                     <th scope="col">Assignment</th>
                                     <th scope="col">Course</th>
                                     <th scope="col">Submitted</th>
@@ -270,11 +394,11 @@ const Grades = () => {
                             <tbody>
                                 {data.submissions.map((submission, index) => (
                                     <tr key={submission.id}>
-                                        <td>{(data.pagination.submissionPage - 1) * data.pagination.pageSize + index + 1}</td>
+                                        <td className="table-number-column">{(data.pagination.submissionPage - 1) * data.pagination.pageSize + index + 1}</td>
                                         <td>{submission.assignment?.title || "Assignment"}</td>
                                         <td>{submission.assignment?.course?.title || "Course"}</td>
                                         <td>{new Date(submission.createdAt).toLocaleDateString()}</td>
-                                        <td>{submission.grade}</td>
+                                        <td>{submission.grade && submission.grade !== "Pending" ? submission.grade : "Not graded"}</td>
                                         <td>{submission.feedback || "—"}</td>
                                     </tr>
                                 ))}

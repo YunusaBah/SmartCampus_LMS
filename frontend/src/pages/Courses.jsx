@@ -1,18 +1,22 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useSearchParams } from "react-router-dom";
-import { FaArrowRight, FaBookOpen, FaPlus, FaSearch, FaTimes, FaTrash } from "react-icons/fa";
+import { FaArrowRight, FaBookOpen, FaPlus, FaSearch, FaTimes } from "react-icons/fa";
 import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
+import useOfflineRefresh from "../hooks/useOfflineRefresh";
+
+const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 const Courses = ({ catalog = false }) => {
+    const offlineRefresh = useOfflineRefresh();
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
     const { isStaff } = useAuth();
-    const courseSection = ["overview", "materials", "students", "assignments", "quizzes", "grading", "calendar", "announcements"].includes(searchParams.get("section"))
+    const requestedCourseSection = ["materials", "students", "assignments", "quizzes", "grading", "calendar", "announcements"].includes(searchParams.get("section"))
         ? searchParams.get("section")
         : null;
+    const courseSection = requestedCourseSection;
     const sectionDetails = {
-        overview: { title: "Course Overview", action: "Open overview" },
         materials: { title: "Materials", action: "Open materials" },
         students: { title: "Students", action: "View students" },
         quizzes: { title: "Quizzes", action: "Open quizzes" },
@@ -23,7 +27,9 @@ const Courses = ({ catalog = false }) => {
     }[courseSection];
     const [myCourses, setMyCourses] = useState([]);
     const [enrolledCourseIds, setEnrolledCourseIds] = useState([]);
-    const [form, setForm] = useState({ title: "", contents: "", contentFile: null });
+    const [form, setForm] = useState({
+        title: "", description: "", classDays: [], classStartTime: "", classEndTime: ""
+    });
     const [search, setSearch] = useState("");
     const [courseStatusFilter, setCourseStatusFilter] = useState("all");
     const [courseStats, setCourseStats] = useState(null);
@@ -33,16 +39,12 @@ const Courses = ({ catalog = false }) => {
     const [catalogFilter, setCatalogFilter] = useState("all");
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState("");
-    const [copied, setCopied] = useState(null);
     const [msg, setMsg] = useState("");
-    const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [isCreateOpen, setIsCreateOpen] = useState(() => isStaff && searchParams.get("create") === "1");
     const [creating, setCreating] = useState(false);
-    const [deletingCourseId, setDeletingCourseId] = useState(null);
     const [refreshKey, setRefreshKey] = useState(0);
     const createAbortController = useRef(null);
     const creatingRef = useRef(false);
-    const deletingRef = useRef(false);
-    const contentFileInput = useRef(null);
 
     useEffect(() => {
         let active = true;
@@ -90,7 +92,7 @@ const Courses = ({ catalog = false }) => {
 
         loadData();
         return () => { active = false; };
-    }, [catalog, isStaff, refreshKey]);
+    }, [catalog, isStaff, offlineRefresh, refreshKey]);
 
     useEffect(() => {
         const refreshCourses = () => setRefreshKey((key) => key + 1);
@@ -104,6 +106,10 @@ const Courses = ({ catalog = false }) => {
 
     const handleCreate = async (e) => {
         e.preventDefault();
+        if (!form.classDays.length) {
+            setMsg("Choose at least one class day.");
+            return;
+        }
         if (!navigator.onLine) {
             setMsg("No internet connection. Connect to the internet and try again.");
             return;
@@ -112,8 +118,11 @@ const Courses = ({ catalog = false }) => {
 
         const payload = new FormData();
         payload.append("title", form.title);
-        payload.append("contents", form.contents);
-        if (form.contentFile) payload.append("contentFile", form.contentFile);
+        payload.append("description", form.description);
+        payload.append("classDays", JSON.stringify(form.classDays));
+        payload.append("classStartTime", form.classStartTime);
+        payload.append("classEndTime", form.classEndTime);
+        payload.append("classTimeZone", Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
 
         const controller = new AbortController();
         createAbortController.current = controller;
@@ -125,13 +134,12 @@ const Courses = ({ catalog = false }) => {
                 signal: controller.signal,
                 headers: { "Content-Type": "multipart/form-data" }
             });
-            setForm({ title: "", contents: "", contentFile: null });
-            if (contentFileInput.current) contentFileInput.current.value = "";
+            setForm({ title: "", description: "", classDays: [], classStartTime: "", classEndTime: "" });
             setIsCreateOpen(false);
             setMsg("Course created successfully!");
             window.dispatchEvent(new Event("smartcampus:dashboard-refresh"));
             window.dispatchEvent(new Event("smartcampus:courses-refresh"));
-            navigate(`/courses/${response.data.id}?section=overview`, {
+            navigate(`/courses/${response.data.id}?section=manage`, {
                 state: { successMessage: "Course created successfully." }
             });
         } catch (err) {
@@ -153,50 +161,11 @@ const Courses = ({ catalog = false }) => {
         if (creating) {
             createAbortController.current?.abort();
             setIsCreateOpen(false);
-            setForm({ title: "", contents: "", contentFile: null });
-            if (contentFileInput.current) contentFileInput.current.value = "";
+            setForm({ title: "", description: "", classDays: [], classStartTime: "", classEndTime: "" });
             return;
         }
         setIsCreateOpen(false);
-        setForm({ title: "", contents: "", contentFile: null });
-        if (contentFileInput.current) contentFileInput.current.value = "";
-    };
-
-    const copyCode = async (code) => {
-        try {
-            await navigator.clipboard.writeText(code);
-            setCopied(code);
-            setTimeout(() => setCopied(null), 2000);
-        } catch {
-            setMsg("Unable to copy the class code. Select and copy it manually.");
-        }
-    };
-
-    const deleteCourse = async (course) => {
-        if (deletingRef.current) return;
-        if (!window.confirm(`Delete "${course.title}" and all of its course data? This cannot be undone.`)) return;
-        if (!navigator.onLine) {
-            setMsg("No internet connection. Connect to the internet and try again.");
-            return;
-        }
-
-        deletingRef.current = true;
-        setDeletingCourseId(course.id);
-        setMsg("");
-        try {
-            await API.delete(`/courses/${course.id}`);
-            setMyCourses((current) => current.filter((item) => item.id !== course.id));
-            window.dispatchEvent(new Event("smartcampus:dashboard-refresh"));
-            window.dispatchEvent(new Event("smartcampus:courses-refresh"));
-            setMsg("Course deleted successfully.");
-        } catch (error) {
-            setMsg(!error.response
-                ? "No internet connection. Check your connection and try again."
-                : error.response.data?.message || "Failed to delete course.");
-        } finally {
-            deletingRef.current = false;
-            setDeletingCourseId(null);
-        }
+        setForm({ title: "", description: "", classDays: [], classStartTime: "", classEndTime: "" });
     };
 
     const filteredLecturerCourses = myCourses.filter((course) =>
@@ -241,7 +210,7 @@ const Courses = ({ catalog = false }) => {
                         <span className="sr-only">Search courses</span>
                         <input
                             type="search"
-                            placeholder="Search course, topic, or lecturer"
+                            placeholder="Search: course, topic, lecturer"
                             value={search}
                             onChange={(event) => setSearch(event.target.value)}
                         />
@@ -280,7 +249,7 @@ const Courses = ({ catalog = false }) => {
                                         </p>
                                         <Link
                                             to={isEnrolled
-                                                ? `/courses/${course.id}?section=${courseSection || "overview"}`
+                                                ? `/courses/${course.id}?section=${courseSection || (isStaff ? "manage" : "materials")}`
                                                 : "/join"}
                                             className="catalog-link"
                                         >
@@ -349,53 +318,58 @@ const Courses = ({ catalog = false }) => {
                                         disabled={creating}
                                     />
                                 </label>
-                                <div className="course-upload-field">
-                                    <span>Course content (optional)</span>
-                                    <input
-                                        ref={contentFileInput}
-                                        className="course-file-input-hidden"
-                                        type="file"
-                                        accept=".pdf,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.txt,.csv,.png,.jpg,.jpeg,.gif,.webp"
-                                        onChange={(event) => setForm({ ...form, contentFile: event.target.files?.[0] || null })}
-                                        disabled={creating}
-                                    />
-                                    <div className="course-file-picker">
-                                        <button
-                                            type="button"
-                                            className="course-file-plus"
-                                            aria-label="Add course content"
-                                            title="Add course content"
-                                            disabled={creating}
-                                            onClick={() => contentFileInput.current?.click()}
-                                        >
-                                            <FaPlus aria-hidden="true" /> Add course content
-                                        </button>
-                                        <span>{form.contentFile?.name || "Choose a file (up to 10 MB)"}</span>
-                                        {form.contentFile && (
-                                            <button
-                                                type="button"
-                                                className="course-file-remove"
-                                                aria-label="Remove selected course contents file"
-                                                disabled={creating}
-                                                onClick={() => {
-                                                    setForm({ ...form, contentFile: null });
-                                                    if (contentFileInput.current) contentFileInput.current.value = "";
-                                                }}
-                                            >
-                                                <FaTimes aria-hidden="true" />
-                                            </button>
-                                        )}
-                                    </div>
-                                </div>
                                 <label>
-                                    Content description (optional)
+                                    Course description <span className="course-field-optional">(optional)</span>
                                     <textarea
-                                        value={form.contents}
-                                        onChange={(event) => setForm({ ...form, contents: event.target.value })}
+                                        value={form.description}
+                                        onChange={(event) => setForm({ ...form, description: event.target.value })}
                                         disabled={creating}
-                                        rows={2}
+                                        rows={3}
+                                        maxLength={10000}
+                                        placeholder="Describe what students will learn in this course"
                                     />
                                 </label>
+                                <fieldset className="course-schedule-days">
+                                    <legend>Class days</legend>
+                                    {weekdays.map((day, index) => (
+                                        <label key={day}>
+                                            <input
+                                                type="checkbox"
+                                                checked={form.classDays.includes(index)}
+                                                onChange={(event) => setForm((current) => ({
+                                                    ...current,
+                                                    classDays: event.target.checked
+                                                        ? [...current.classDays, index]
+                                                        : current.classDays.filter((selectedDay) => selectedDay !== index)
+                                                }))}
+                                                disabled={creating}
+                                            />
+                                            {day}
+                                        </label>
+                                    ))}
+                                </fieldset>
+                                <div className="course-schedule-time">
+                                    <label>
+                                        Class starts
+                                        <input
+                                            type="time"
+                                            required
+                                            value={form.classStartTime}
+                                            onChange={(event) => setForm({ ...form, classStartTime: event.target.value })}
+                                            disabled={creating}
+                                        />
+                                    </label>
+                                    <label>
+                                        Class ends
+                                        <input
+                                            type="time"
+                                            required
+                                            value={form.classEndTime}
+                                            onChange={(event) => setForm({ ...form, classEndTime: event.target.value })}
+                                            disabled={creating}
+                                        />
+                                    </label>
+                                </div>
                                 <div className="course-modal-actions">
                                     <button type="button" className="course-cancel-button" onClick={closeCreateDialog}>
                                         {creating ? "Cancel creation" : "Cancel"}
@@ -418,7 +392,7 @@ const Courses = ({ catalog = false }) => {
                     <label className="catalog-search">
                         <FaSearch aria-hidden="true" />
                         <span className="sr-only">Search your courses</span>
-                        <input type="search" placeholder="Search your courses" value={search} onChange={(event) => setSearch(event.target.value)} />
+                        <input type="search" placeholder="Search: your courses" value={search} onChange={(event) => setSearch(event.target.value)} />
                     </label>
                     <label className="course-status-filter">
                         <span>Status</span>
@@ -429,40 +403,31 @@ const Courses = ({ catalog = false }) => {
                         </select>
                     </label>
                 </div>
-                <div className="card-grid">
+                <section className="dashboard-course-grid" aria-label="Your courses">
                     {myCourses.length === 0 && <p style={{ color: "var(--theme-muted)" }}>No courses yet.</p>}
-                    {filteredLecturerCourses.map(course => (
-                        <article className="card lecturer-course-card" key={course.id}>
-                            {course.classCode && (
-                                <div className="lecturer-course-code">
-                                    <span>{course.classCode}</span>
-                                    <button type="button" onClick={() => copyCode(course.classCode)}>
-                                        {copied === course.classCode ? "Copied" : "Copy code"}
-                                    </button>
-                                </div>
-                            )}
+                    {filteredLecturerCourses.map((course, index) => (
+                        <article className={`course-card student-course-simple course-accent-${index % 3}`} key={course.id}>
                             <h3>{course.title}</h3>
-                            <div className="lecturer-course-actions">
-                                <Link to={`/courses/${course.id}?section=overview`} className="btn btn-inline">
-                                    Manage Course
-                                </Link>
-                                <button
-                                    type="button"
-                                    className="course-card-delete"
-                                    aria-label={`Delete ${course.title}`}
-                                    disabled={deletingCourseId !== null}
-                                    onClick={() => deleteCourse(course)}
-                                >
-                                    <FaTrash aria-hidden="true" />
-                                    {deletingCourseId === course.id ? "Deleting..." : "Delete"}
-                                </button>
-                            </div>
+                            {course.description && <p className="course-summary">{course.description}</p>}
+                            <p className="course-summary">
+                                {course.enrollmentCount ?? 0} {(course.enrollmentCount ?? 0) === 1 ? "student" : "students"} enrolled
+                            </p>
+                            {course.createdAt && (
+                                <p className="course-created-date">
+                                    Created {new Date(course.createdAt).toLocaleDateString(undefined, {
+                                        year: "numeric", month: "short", day: "numeric"
+                                    })}
+                                </p>
+                            )}
+                            <Link className="course-card-link" to={`/courses/${course.id}?section=materials`}>
+                                Open course <FaArrowRight aria-hidden="true" />
+                            </Link>
                         </article>
                     ))}
                     {myCourses.length > 0 && filteredLecturerCourses.length === 0 && (
                         <p className="course-empty-filter">No courses match those filters.</p>
                     )}
-                </div>
+                </section>
             </div>
         );
     }
@@ -488,7 +453,7 @@ const Courses = ({ catalog = false }) => {
                 <label className="catalog-search">
                     <FaSearch aria-hidden="true" />
                     <span className="sr-only">Search my courses</span>
-                    <input type="search" placeholder="Search by course or lecturer" value={search} onChange={(event) => setSearch(event.target.value)} />
+                    <input type="search" placeholder="Search: course, lecturer" value={search} onChange={(event) => setSearch(event.target.value)} />
                 </label>
                 <label className="course-status-filter">
                     <span>Status</span>
@@ -512,7 +477,7 @@ const Courses = ({ catalog = false }) => {
                         <article className={`course-card student-course-simple course-accent-${index % 3}`} key={course.id}>
                             <h3>{course.title}</h3>
                             <p className="course-summary">Lecturer: {course.lecturerName || "Lecturer"}</p>
-                            <Link className="course-card-link" to={`/courses/${course.id}?section=overview`}>Open course <FaArrowRight /></Link>
+                            <Link className="course-card-link" to={`/courses/${course.id}?section=materials`}>Open course <FaArrowRight /></Link>
                         </article>
                     ))}
                 </div>

@@ -44,7 +44,7 @@ const Layout = ({ open, toggle, onClose, theme, toggleTheme }) => {
             <div className="app-container">
                 <Sidebar open={open} onClose={onClose} />
 
-                <main className={open ? "main" : "main full"}>
+                <main className={open ? "main" : "main sidebar-collapsed"}>
                     <Outlet />
                 </main>
             </div>

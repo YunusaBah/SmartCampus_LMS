@@ -7,9 +7,9 @@ same-origin `/api` URLs, so no service binding is needed.
 
 ## Important platform limits
 
-- Vercel hosts the frontend and API, but it does not host this project's MySQL
-  database. Keep the existing managed MySQL database or provision one with a
-  database provider. It must accept secure connections from Vercel.
+- Vercel hosts the frontend and API, but it does not host this project's
+  PostgreSQL database. Use Supabase PostgreSQL and configure the backend
+  connection variables below.
 - The backend currently saves uploaded materials and submissions to local disk.
   Vercel function storage is temporary and can differ between invocations.
   Attachments therefore are not persistent in this deployment until the backend
@@ -19,14 +19,22 @@ same-origin `/api` URLs, so no service binding is needed.
   Uploads are capped at 4 MB on Vercel. Use direct-to-object-storage uploads for
   larger files after an object-storage adapter is integrated.
 
-## 1. Prepare the database
+## 1. Prepare Supabase PostgreSQL
 
-Use the existing MySQL database if it is reachable from Vercel. Do not delete
-or migrate the database just because the API is moving. Obtain its host, port,
-database name, username, and password from the database provider. Use TLS
-(`DB_SSL=true`) and a small connection pool (`DB_POOL_MAX=2`) for serverless
-instances. If the provider uses an IP allowlist, configure it for the Vercel
-deployment or use a database connection option supported by that provider.
+Create or select a Supabase project, then open **Project Settings → Database**
+and copy its PostgreSQL connection URI. Use the Supabase session pooler URI if
+Vercel cannot reach the direct database host. The URI includes a database
+password; keep it private and URL-encode special characters in the password.
+The backend uses Sequelize for every existing `/api/*` route, so the existing
+accounts, courses, lessons, assignments, quizzes, grades, announcements,
+feedback, chat, and other API data all use this PostgreSQL database. No
+duplicate Supabase REST routes are needed.
+
+Use `DB_SSL=true` and a small connection pool (`DB_POOL_MAX=2`) for serverless
+instances. The backend applies its additive migrations and creates missing
+tables at startup; do not manually create application tables or use
+`sequelize.sync({ alter: true })`. A database user with schema/table creation
+and migration privileges is required for the initial deployment.
 
 Vercel initializes the database on the first API invocation in each backend
 instance, then runs the existing migrations and Sequelize sync. Allow the first
@@ -51,28 +59,37 @@ the same services.
 
 | Variable | Value |
 |---|---|
-| `DB_HOST` | Managed MySQL host |
-| `DB_PORT` | Managed MySQL port, usually `3306` |
-| `DB_NAME` | MySQL database name |
-| `DB_USER` | MySQL user |
-| `DB_PASSWORD` | MySQL password |
-| `DB_SSL` | `true` when the provider requires TLS |
-| `DB_POOL_MAX` | `2` |
+| `DB_DIALECT` | `postgres` |
+| `DATABASE_URL` | Supabase PostgreSQL connection URI from Project Settings → Database |
+| `DB_SSL` | `true` |
+| `DB_POOL_MAX` | `2` for serverless functions |
 | `JWT_SECRET` | Random secret of at least 32 characters |
 | `GOOGLE_CLIENT_ID` | Google OAuth Web client ID |
 | `VITE_GOOGLE_CLIENT_ID` | Same public Google OAuth Web client ID for the browser sign-in button |
 | `CLIENT_URL` | Exact production origin, e.g. `https://your-project.vercel.app` |
-| `ANTHROPIC_API_KEY` | Optional; only needed for the AI assistant |
-| `PASSWORD_RESET_DELIVERY_URL` | Optional HTTPS password-reset delivery endpoint |
-| `PASSWORD_RESET_DELIVERY_SECRET` | Optional shared secret, at least 32 characters |
-| `PASSWORD_RESET_PAGE_URL` | Optional HTTPS login page URL for reset links |
+| `SUPABASE_JWT_SECRET` | Backend-only Supabase JWT signing secret; required for chat Realtime tokens |
+| `VITE_SUPABASE_URL` | Public Supabase project URL for browser chat Realtime |
+| `VITE_SUPABASE_ANON_KEY` | Public Supabase anon/publishable key for browser chat Realtime |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | Optional SMTP delivery for feedback and collaboration emails |
+| `FEEDBACK_RECIPIENT_EMAIL`, `COLLABORATION_RECIPIENT_EMAIL` | Optional destinations for those emails |
+| `OPENAI_API_KEY` | Optional; only needed for the AI assistant |
+| `TENOR_API_KEY` | Optional; only needed for chat GIF/sticker search |
 
 `PORT` is managed by Vercel and is not required. Do not set `VITE_API_URL` for
 this same-origin deployment. Redeploy after changing frontend environment
 variables because Vite embeds them at build time.
 
 Do not put `.env` files, database credentials, JWT secrets, or API keys in Git.
-`VITE_*` values are included in browser code and must never contain secrets.
+`VITE_*` values are included in browser code: only the Supabase anon/publishable
+key and other explicitly public values belong there. Never expose the database
+password, service-role key, or `SUPABASE_JWT_SECRET` to the frontend.
+
+Supabase Realtime chat also requires the Supabase Auth schema. The backend
+configures chat row-level security and adds the chat messages table to the
+Realtime publication during initialization. Set `SUPABASE_JWT_SECRET` from the
+Supabase project's JWT signing configuration; this is separate from the anon
+key. If Realtime is unavailable, the chat API retains its authenticated
+server-sent-events fallback.
 
 ## 4. Finish Google sign-in configuration
 
