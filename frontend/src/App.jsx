@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, useEffect, useState } from "react";
+import { SpeedInsights } from "@vercel/speed-insights/react";
 
 import Layout from "./components/Layout";
 import FloatingChatHost from "./components/FloatingChatHost";
@@ -93,6 +94,7 @@ function App() {
 
     return (
         <BrowserRouter>
+            <SpeedInsights />
             <Suspense fallback={<div className="page-content"><p>Loading...</p></div>}>
                 <Routes>
                     <Route path="/invite" element={<JoinClass invitationMode />} />
