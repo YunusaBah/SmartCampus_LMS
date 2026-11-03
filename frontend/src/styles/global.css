@@ -10742,6 +10742,10 @@ a:focus-visible {
 @media (max-width: 560px) {
     .login-portal {
         padding: 0 16px 18px;
+        background-color: #111827;
+        background-position: center, center 112px;
+        background-size: cover, 100% auto;
+        background-repeat: no-repeat;
     }
 
     .login-welcome h1 {

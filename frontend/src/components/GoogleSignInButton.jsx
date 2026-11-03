@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import API from "../services/api";
 
 const GOOGLE_SCRIPT = "https://accounts.google.com/gsi/client";
 let scriptPromise;
@@ -30,12 +31,39 @@ const GoogleSignInButton = ({ text = "signin_with", onCredential, onError }) => 
     const credentialHandler = useRef(onCredential);
     const errorHandler = useRef(onError);
     const [ready, setReady] = useState(false);
-    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    const frontendClientId = (import.meta.env.VITE_GOOGLE_CLIENT_ID || "").trim();
+    const [clientId, setClientId] = useState(frontendClientId);
+    const [configLoaded, setConfigLoaded] = useState(Boolean(frontendClientId));
+    const [configError, setConfigError] = useState("");
 
     useEffect(() => {
         credentialHandler.current = onCredential;
         errorHandler.current = onError;
     }, [onCredential, onError]);
+
+    useEffect(() => {
+        if (clientId) return undefined;
+        let active = true;
+
+        API.get("/auth/config", { skipOfflineCache: true })
+            .then((response) => {
+                if (!active) return;
+                const configuredClientId = response.data?.googleClientId;
+                if (typeof configuredClientId === "string" && configuredClientId.trim()) {
+                    setClientId(configuredClientId.trim());
+                } else {
+                    setConfigError("Google sign-in isn't configured. You can use your email and password.");
+                }
+                setConfigLoaded(true);
+            })
+            .catch(() => {
+                if (!active) return;
+                setConfigError("Google sign-in couldn't be loaded. You can use your email and password.");
+                setConfigLoaded(true);
+            });
+
+        return () => { active = false; };
+    }, [clientId]);
 
     useEffect(() => {
         if (!clientId || !containerRef.current) return undefined;
@@ -65,16 +93,17 @@ const GoogleSignInButton = ({ text = "signin_with", onCredential, onError }) => 
         return () => { active = false; };
     }, [clientId, text]);
 
-    if (!clientId) {
+    if (!clientId && configLoaded) {
         return <p className="google-signin-notice" role="status">
-            Google sign-in isn&apos;t configured for this site yet. You can use your email and password, or ask
-            the site administrator to add the Google OAuth client ID and redeploy.
+            {configError || "Google sign-in isn't configured. You can use your email and password."}
         </p>;
     }
 
     return (
         <div className="google-signin-wrap">
-            {!ready && <span className="google-signin-loading" role="status">Loading Google sign-in…</span>}
+            {!ready && <span className="google-signin-loading" role="status">
+                {configLoaded ? "Loading Google sign-in…" : "Checking Google sign-in…"}
+            </span>}
             <div className="google-signin-button" ref={containerRef} />
         </div>
     );

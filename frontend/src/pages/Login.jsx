@@ -619,7 +619,7 @@ const Login = () => {
                                     openRegister();
                                 }}
                             >
-                                Create one
+                                Create
                             </button>
                         </p>}
                     </section>

@@ -17,6 +17,11 @@ require("../config/env");
 
 const passwordRecoveryMessage = "If an eligible account exists, recovery instructions will be sent.";
 
+exports.getAuthConfig = (req, res) => {
+    res.set("Cache-Control", "no-store");
+    return res.json({ googleClientId: process.env.GOOGLE_CLIENT_ID || null });
+};
+
 const getResetDeliveryConfig = () => {
     if (process.env.NODE_ENV === "development") {
         return { development: true };

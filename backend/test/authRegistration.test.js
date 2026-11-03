@@ -50,6 +50,25 @@ const createResponse = () => ({
     }
 });
 
+test("public auth config returns only the Google OAuth client ID", () => {
+    process.env.GOOGLE_CLIENT_ID = "public-google-client-id";
+    const response = createResponse();
+
+    authController.getAuthConfig({}, response);
+
+    assert.equal(response.headers["Cache-Control"], "no-store");
+    assert.deepEqual(response.body, { googleClientId: "public-google-client-id" });
+});
+
+test("public auth config reports when Google sign-in is not configured", () => {
+    delete process.env.GOOGLE_CLIENT_ID;
+    const response = createResponse();
+
+    authController.getAuthConfig({}, response);
+
+    assert.deepEqual(response.body, { googleClientId: null });
+});
+
 test("email registration creates a student account without requiring a phone number", async () => {
     let createdUser;
     User.findOne = async ({ where }) => {

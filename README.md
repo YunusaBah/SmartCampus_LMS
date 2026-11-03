@@ -64,7 +64,7 @@ See `backend/.env.example`.
 | Variable | Description |
 |----------|-------------|
 | `VITE_API_URL` | Backend base URL (no `/api` suffix) |
-| `VITE_GOOGLE_CLIENT_ID` | Google OAuth Web client ID for sign-in |
+| `VITE_GOOGLE_CLIENT_ID` | Optional Google OAuth Web client ID; normally read from the backend configuration |
 | `VITE_SUPABASE_URL` | Public Supabase project URL, used for chat Realtime |
 | `VITE_SUPABASE_ANON_KEY` | Public Supabase anon/publishable key, used for chat Realtime |
 

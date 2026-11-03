@@ -111,7 +111,9 @@ API.get = (url, config = {}) => {
 API.interceptors.request.use(
     (config) => {
         if (config.method !== "get" && !navigator.onLine) {
-            return Promise.reject(new Error("You are offline. Reconnect to save changes."));
+            const error = new Error("You are offline. Reconnect to save changes.");
+            error.code = "ERR_NETWORK";
+            return Promise.reject(error);
         }
 
         const token = localStorage.getItem("token");

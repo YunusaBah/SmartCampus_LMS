@@ -86,7 +86,6 @@ the same services.
 | `DB_POOL_MAX` | `2` for serverless functions |
 | `JWT_SECRET` | Random secret of at least 32 characters |
 | `GOOGLE_CLIENT_ID` | Google OAuth Web client ID |
-| `VITE_GOOGLE_CLIENT_ID` | Same public Google OAuth Web client ID for the browser sign-in button |
 | `CLIENT_URL` | Exact production origin, e.g. `https://your-project.vercel.app` |
 | `SUPABASE_JWT_SECRET` | Backend-only Supabase JWT signing secret; required for chat Realtime tokens |
 | `SUPABASE_URL` | Supabase project URL for backend Storage access |
@@ -102,7 +101,9 @@ the same services.
 
 `PORT` is managed by Vercel and is not required. Do not set `VITE_API_URL` for
 this same-origin deployment. Redeploy after changing frontend environment
-variables because Vite embeds them at build time.
+variables because Vite embeds them at build time. Google sign-in reads its
+public client ID from the backend configuration, so `VITE_GOOGLE_CLIENT_ID` is
+optional; set it only if you want to configure the browser button directly.
 
 Do not put `.env` files, database credentials, JWT secrets, or API keys in Git.
 `VITE_*` values are included in browser code: only the Supabase anon/publishable
@@ -128,8 +129,9 @@ origin to **Authorized JavaScript origins** (for example,
 `https://your-project.vercel.app`). Add any custom domain you use as a separate
 origin. The origin must not include a path or trailing slash.
 
-The `GOOGLE_CLIENT_ID` backend value and `VITE_GOOGLE_CLIENT_ID` frontend value
-must match. Redeploy after setting or changing Vercel environment variables.
+Set `GOOGLE_CLIENT_ID` in the backend environment and redeploy after changing
+Vercel environment variables. If `VITE_GOOGLE_CLIENT_ID` is also set, it must
+match the backend value.
 
 ## 6. Verify the deployment
 
