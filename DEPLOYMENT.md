@@ -104,6 +104,8 @@ this same-origin deployment. Redeploy after changing frontend environment
 variables because Vite embeds them at build time. Google sign-in reads its
 public client ID from the backend configuration, so `VITE_GOOGLE_CLIENT_ID` is
 optional; set it only if you want to configure the browser button directly.
+Environment variable names are case-sensitive: use `GOOGLE_CLIENT_ID` and
+`CLIENT_URL` (not mixed-case variants) in Vercel.
 
 Do not put `.env` files, database credentials, JWT secrets, or API keys in Git.
 `VITE_*` values are included in browser code: only the Supabase anon/publishable
