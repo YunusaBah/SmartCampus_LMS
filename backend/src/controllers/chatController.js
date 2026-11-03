@@ -1,6 +1,6 @@
 const { Op } = require("sequelize");
 const jwt = require("jsonwebtoken");
-const { sequelize } = require("../config/db");
+const sequelize = require("../config/db");
 const ChatProfile = require("../models/ChatProfile");
 const ChatProfilePermission = require("../models/ChatProfilePermission");
 const ChatMessage = require("../models/ChatMessage");

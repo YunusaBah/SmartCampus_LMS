@@ -1,5 +1,5 @@
 const { Op } = require("sequelize");
-const { sequelize } = require("../config/db");
+const sequelize = require("../config/db");
 const { getOccurrences, dateTimeInZone } = require("../utils/classSchedule");
 const Course = require("../models/Course");
 const Enrollment = require("../models/Enrollment");

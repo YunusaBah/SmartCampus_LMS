@@ -2,7 +2,7 @@ const Quiz = require("../models/Quiz");
 const QuizResult = require("../models/QuizResult");
 const Course = require("../models/Course");
 const Enrollment = require("../models/Enrollment");
-const { sequelize } = require("../config/db");
+const sequelize = require("../config/db");
 const getCourseAccess = require("../utils/courseAccess");
 
 exports.createQuiz = async (req, res) => {
