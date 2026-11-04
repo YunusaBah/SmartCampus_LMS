@@ -24,13 +24,19 @@ creates missing tables when it starts; it does not create the PostgreSQL
 database itself.
 
 For deployment, set `DB_DIALECT=postgres`, `DATABASE_URL` to the PostgreSQL
-connection URI from Supabase Project Settings → Database, and `DB_SSL=true` in
-the hosting provider's environment settings. `DATABASE_URL` takes precedence
+connection URI from Supabase's **Transaction pooler** settings, and
+`DB_SSL=true` in the hosting provider's environment settings. Transaction mode
+uses port `6543` and is recommended for serverless deployments such as Vercel;
+the session pooler's port `5432` has a low cap on client connections and can
+return `max clients reached in session mode` when multiple backend instances
+connect. `DATABASE_URL` takes precedence
 over the individual `DB_HOST`/`DB_NAME`/`DB_USER`/`DB_PASSWORD` settings, so the
 same code can use local PostgreSQL in development and Supabase in deployment.
-Keep the connection pool small for serverless deployments, and use Supabase's
-session pooler URI if the hosting provider cannot connect directly to the
-database. PostgreSQL is selected automatically when `DATABASE_URL` is set and
+Keep the connection pool small for serverless deployments; if the host cannot
+connect directly to the database, use Supabase's transaction pooler URI.
+Set `DB_POOL_MAX=1` on Vercel and keep the total pool size within the
+database provider's limit; each serverless instance has its own pool.
+PostgreSQL is selected automatically when `DATABASE_URL` is set and
 `DB_DIALECT` is omitted. SSL certificate verification is enabled whenever SSL
 is enabled; only disable SSL for local development, never to work around an
 untrusted production certificate. If the provider uses a private or self-signed

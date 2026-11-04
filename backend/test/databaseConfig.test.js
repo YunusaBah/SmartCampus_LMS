@@ -8,12 +8,15 @@ const configKeys = [
     "DB_CONNECT_TIMEOUT",
     "DB_HOST",
     "DB_NAME",
+    "DB_POOL_MAX",
+    "DB_POOL_MIN",
     "DB_PASSWORD",
     "DB_PORT",
     "DB_SSL",
     "DB_SSL_CA_FILE",
     "DB_USER",
-    "NODE_ENV"
+    "NODE_ENV",
+    "VERCEL"
 ];
 const originalConfig = Object.fromEntries(configKeys.map((key) => [key, process.env[key]]));
 const sequelizeInstances = [];
@@ -24,6 +27,8 @@ const loadDatabaseConfig = (environment) => {
     delete require.cache[require.resolve("../src/config/db")];
     const config = require("../src/config/db");
     assert.equal(typeof config.define, "function");
+    assert.equal(config.default, config);
+    assert.equal(typeof config.default.define, "function");
     assert.equal(config.sequelize, config);
     assert.equal(typeof config.connectDB, "function");
     sequelizeInstances.push(config.sequelize);
@@ -87,6 +92,30 @@ test("PostgreSQL connection timeout is configurable", () => {
 
     assert.equal(sequelize.options.dialectOptions.connectionTimeoutMillis, 8000);
 });
+
+test("database connection pool defaults stay small for Supabase pooler limits", () => {
+        const localSequelize = loadDatabaseConfig({
+            DATABASE_URL: "postgresql://test:test@db.example.com:5432/postgres"
+        });
+        assert.equal(localSequelize.options.pool.max, 2);
+
+        const vercelSequelize = loadDatabaseConfig({
+            DATABASE_URL: "postgresql://test:test@db.example.com:6543/postgres",
+            VERCEL: "1"
+        });
+        assert.equal(vercelSequelize.options.pool.max, 1);
+    });
+
+    test("database connection pool limits can be explicitly configured", () => {
+        const sequelize = loadDatabaseConfig({
+            DATABASE_URL: "postgresql://test:test@db.example.com:6543/postgres",
+            DB_POOL_MAX: "3",
+            DB_POOL_MIN: "1"
+        });
+
+        assert.equal(sequelize.options.pool.max, 3);
+        assert.equal(sequelize.options.pool.min, 1);
+    });
 
 test("PostgreSQL SSL can use a provider CA certificate file", () => {
     const sequelize = loadDatabaseConfig({

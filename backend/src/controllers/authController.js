@@ -447,12 +447,11 @@ exports.resetPassword = async (req, res) => {
 
 exports.logout = async (req, res) => {
     try {
-        const [updated] = await User.update({
-            tokenVersion: User.sequelize.literal("tokenVersion + 1")
-        }, { where: { id: req.user.id }, validate: false });
-        if (!updated) {
+        const user = await User.findByPk(req.user.id);
+        if (!user) {
             return res.status(401).json({ message: "User no longer exists" });
         }
+        await user.increment("tokenVersion");
         return res.json({ message: "Logged out successfully" });
     } catch (error) {
         console.error("Logout failed:", error);

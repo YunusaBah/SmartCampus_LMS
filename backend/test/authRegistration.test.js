@@ -10,6 +10,7 @@ const User = require("../src/models/User");
 const authController = require("../src/controllers/authController");
 
 const originalFindOne = User.findOne;
+const originalFindByPk = User.findByPk;
 const originalCreate = User.create;
 const originalJwtSecret = process.env.JWT_SECRET;
 const originalGoogleClientId = process.env.GOOGLE_CLIENT_ID;
@@ -18,6 +19,7 @@ process.env.JWT_SECRET = "test-jwt-secret-for-account-registration";
 
 afterEach(() => {
     User.findOne = originalFindOne;
+    User.findByPk = originalFindByPk;
     User.create = originalCreate;
     global.fetch = originalFetch;
     if (originalJwtSecret === undefined) {
@@ -67,6 +69,35 @@ test("public auth config reports when Google sign-in is not configured", () => {
     authController.getAuthConfig({}, response);
 
     assert.deepEqual(response.body, { googleClientId: null });
+});
+
+test("logout revokes the user's session", async () => {
+    let incrementedField;
+    User.findByPk = async (id) => {
+        assert.equal(id, 21);
+        return {
+            increment: async (field) => {
+                incrementedField = field;
+            }
+        };
+    };
+
+    const response = createResponse();
+    await authController.logout({ user: { id: 21 } }, response);
+
+    assert.equal(incrementedField, "tokenVersion");
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(response.body, { message: "Logged out successfully" });
+});
+
+test("logout reports when the user no longer exists", async () => {
+    User.findByPk = async () => null;
+    const response = createResponse();
+
+    await authController.logout({ user: { id: 21 } }, response);
+
+    assert.equal(response.statusCode, 401);
+    assert.deepEqual(response.body, { message: "User no longer exists" });
 });
 
 test("email registration creates a student account without requiring a phone number", async () => {
