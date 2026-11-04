@@ -1,5 +1,5 @@
 const { DataTypes } = require("sequelize");
-const sequelize = require("../config/db").sequelize;
+const sequelize = require("../config/db");
 
 module.exports = sequelize.define("ChatReadState", {
     profileId: { type: DataTypes.UUID, allowNull: false },

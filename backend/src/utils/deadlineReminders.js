@@ -6,7 +6,7 @@ const CalendarEvent = require("../models/CalendarEvent");
 const Course = require("../models/Course");
 const createAutomatedAnnouncement = require("./createAutomatedAnnouncement");
 const createNotifications = require("./createNotifications");
-const sequelize = require("../config/db").sequelize;
+const sequelize = require("../config/db");
 
 const HOUR = 60 * 60 * 1000;
 

@@ -1,4 +1,4 @@
-const sequelize = require("../config/db").sequelize;
+const sequelize = require("../config/db");
 const Quiz = require("../models/Quiz");
 const QuizAssessment = require("../models/QuizAssessment");
 const QuizAttempt = require("../models/QuizAttempt");

@@ -1,5 +1,5 @@
 const { DataTypes } = require("sequelize");
-const sequelize = require("../config/db").sequelize;
+const sequelize = require("../config/db");
 
 module.exports = sequelize.define("AssignmentRead", {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },

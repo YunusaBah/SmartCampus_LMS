@@ -1,7 +1,7 @@
 const Announcement = require("../models/Announcement");
 const Enrollment = require("../models/Enrollment");
 const createNotifications = require("./createNotifications");
-const sequelize = require("../config/db").sequelize;
+const sequelize = require("../config/db");
 
 const createAutomatedAnnouncement = async ({
     automaticKey,

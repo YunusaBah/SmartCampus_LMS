@@ -20,7 +20,7 @@ const feedbackRoutes = require("./Routes/feedbackRoutes");
 const chatRoutes = require("./Routes/chatRoutes");
 const reportRoutes = require("./Routes/reportRoutes");
 const uploadRoutes = require("./Routes/uploadRoutes");
-const sequelize = require("./config/db").sequelize;
+const sequelize = require("./config/db");
 
 const app = express();
 
