@@ -103,5 +103,7 @@ const connectDB = async () => {
     console.log("Database connected successfully");
 };
 
-exports.sequelize = sequelize;
-exports.connectDB = connectDB;
+const database = { sequelize, connectDB };
+database.default = database;
+
+module.exports = database;
