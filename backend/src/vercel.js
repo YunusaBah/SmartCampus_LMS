@@ -6,6 +6,10 @@ const api = require("./app");
 
 const app = express();
 
+app.get(["/health/live", "/api/health/live"], (req, res) => {
+    res.json({ status: "ok" });
+});
+
 app.use(async (req, res, next) => {
     try {
         await initializeDatabase();

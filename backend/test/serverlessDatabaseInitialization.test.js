@@ -6,21 +6,21 @@ process.env.DB_PASSWORD = "test";
 
 const { after, test } = require("node:test");
 const assert = require("node:assert/strict");
-const db = require("../src/config/db");
+const { sequelize } = require("../src/config/db");
 
 const migrationPath = require.resolve("../src/utils/runMigrations");
 const chatSecurityPath = require.resolve("../src/utils/chatSecurity");
 const initializerPath = require.resolve("../src/utils/initializeDatabase");
 const migrations = require(migrationPath);
 const chatSecurity = require(chatSecurityPath);
-const originalAuthenticate = db.sequelize.authenticate;
-const originalSync = db.sequelize.sync;
+const originalAuthenticate = sequelize.authenticate;
+const originalSync = sequelize.sync;
 const originalMigrations = migrations;
 const originalChatSecurity = chatSecurity;
 
 const initializationCalls = [];
-db.sequelize.authenticate = async () => initializationCalls.push("connect");
-db.sequelize.sync = async () => initializationCalls.push("sync");
+sequelize.authenticate = async () => initializationCalls.push("connect");
+sequelize.sync = async () => initializationCalls.push("sync");
 const mockedMigrations = async () => initializationCalls.push("migrations");
 mockedMigrations.ensureIdentityIndexes = async () => initializationCalls.push("identity indexes");
 require.cache[migrationPath].exports = mockedMigrations;
@@ -28,15 +28,15 @@ require.cache[chatSecurityPath].exports = async () => initializationCalls.push("
 const initializeDatabase = require(initializerPath);
 
 after(() => {
-    db.sequelize.authenticate = originalAuthenticate;
-    db.sequelize.sync = originalSync;
+    sequelize.authenticate = originalAuthenticate;
+    sequelize.sync = originalSync;
     require.cache[migrationPath].exports = originalMigrations;
     require.cache[chatSecurityPath].exports = originalChatSecurity;
     delete require.cache[initializerPath];
 });
 
 test("serverless database initialization applies chat security after schema sync", async () => {
-    await initializeDatabase();
+    await Promise.all([initializeDatabase(), initializeDatabase()]);
 
     assert.deepEqual(initializationCalls, ["connect", "migrations", "sync", "identity indexes", "chat security"]);
 });
