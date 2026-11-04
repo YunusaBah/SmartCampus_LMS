@@ -1,5 +1,5 @@
 const { QueryTypes } = require("sequelize");
-const sequelize = require("../config/db");
+const sequelize = require("../config/db").sequelize;
 
 module.exports = async () => {
     const [schema] = await sequelize.query(

@@ -1,5 +1,5 @@
 const { DataTypes } = require("sequelize");
-const sequelize = require("../config/db");
+const sequelize = require("../config/db").sequelize;
 
 module.exports = sequelize.define("LessonProgress", {
     id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true },
