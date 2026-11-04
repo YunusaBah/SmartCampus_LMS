@@ -555,7 +555,7 @@ const Login = () => {
                                 {error && <p className="login-error" role="alert">{error}</p>}
                                 <div className="google-signin-section">
                                     <p className="google-signin-copy">
-                                        Sign in with the Google account used to create your SmartCampus LMS account.
+                                        Continue with the Google account linked to your SmartCampus LMS account. Choose an account when prompted.
                                     </p>
                                     <GoogleSignInButton
                                         onCredential={handleGoogleCredential}

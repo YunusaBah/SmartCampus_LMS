@@ -26,7 +26,7 @@ const loadGoogleIdentity = () => {
     return scriptPromise;
 };
 
-const GoogleSignInButton = ({ text = "signin_with", onCredential, onError }) => {
+const GoogleSignInButton = ({ onCredential, onError }) => {
     const containerRef = useRef(null);
     const credentialHandler = useRef(onCredential);
     const errorHandler = useRef(onError);
@@ -73,6 +73,7 @@ const GoogleSignInButton = ({ text = "signin_with", onCredential, onError }) => 
                 if (!active || !containerRef.current) return;
                 googleIdentity.initialize({
                     client_id: clientId,
+                    auto_select: false,
                     callback: (response) => {
                         if (response.credential) credentialHandler.current(response.credential);
                         else errorHandler.current?.("Google did not return a sign-in credential.");
@@ -80,18 +81,17 @@ const GoogleSignInButton = ({ text = "signin_with", onCredential, onError }) => 
                 });
                 containerRef.current.replaceChildren();
                 googleIdentity.renderButton(containerRef.current, {
+                    type: "icon",
                     theme: "outline",
                     size: "large",
-                    shape: "rectangular",
-                    text,
-                    width: Math.min(360, containerRef.current.clientWidth || 360)
+                    shape: "circle"
                 });
                 setReady(true);
             })
             .catch((error) => errorHandler.current?.(error.message));
 
         return () => { active = false; };
-    }, [clientId, text]);
+    }, [clientId]);
 
     if (!clientId && configLoaded) {
         return <p className="google-signin-notice" role="status">

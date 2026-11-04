@@ -191,9 +191,8 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
                     <button className="btn register-submit" type="button" onClick={() => changeSignupMethod("email")}>
                         Sign up with email
                     </button>
-                    <div className="auth-divider"><span>or</span></div>
+                    <div className="auth-divider"><span>or</span>                    </div>
                     <GoogleSignInButton
-                        text="signup_with"
                         onCredential={(credential) => {
                             setRegistrationMethod("google");
                             handleCredential(credential);

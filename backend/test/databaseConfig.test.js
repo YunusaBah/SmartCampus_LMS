@@ -25,14 +25,11 @@ const loadDatabaseConfig = (environment) => {
     for (const key of configKeys) delete process.env[key];
     Object.assign(process.env, environment);
     delete require.cache[require.resolve("../src/config/db")];
-    const config = require("../src/config/db");
-    assert.equal(typeof config.define, "function");
-    assert.equal(config.default, config);
-    assert.equal(typeof config.default.define, "function");
-    assert.equal(config.sequelize, config);
-    assert.equal(typeof config.connectDB, "function");
-    sequelizeInstances.push(config.sequelize);
-    return config.sequelize;
+    const database = require("../src/config/db");
+    assert.equal(typeof database.sequelize.define, "function");
+    assert.equal(typeof database.connectDB, "function");
+    sequelizeInstances.push(database.sequelize);
+    return database.sequelize;
 };
 
 after(async () => {
