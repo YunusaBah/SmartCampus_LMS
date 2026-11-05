@@ -100,13 +100,10 @@ the same services.
 | `TENOR_API_KEY` | Optional; only needed for chat GIF/sticker search |
 
 `PORT` is managed by Vercel and is not required. Do not set `VITE_API_URL` for
-this same-origin deployment. If a production `VITE_API_URL` points to localhost,
-the frontend ignores it and uses the same-origin `/api` routes. Remove that
-environment variable from Vercel and redeploy after changing frontend
-environment variables because Vite embeds them at build time. Google sign-in
-reads its public client ID from the backend configuration, so
-`VITE_GOOGLE_CLIENT_ID` is optional; set it only if you want to configure the
-browser button directly.
+this same-origin deployment. Redeploy after changing frontend environment
+variables because Vite embeds them at build time. Google sign-in reads its
+public client ID from the backend configuration, so `VITE_GOOGLE_CLIENT_ID` is
+optional; set it only if you want to configure the browser button directly.
 
 If the frontend calls a separately hosted backend, set `CLIENT_URL` in the
 backend environment to the exact frontend origin (scheme and hostname, with no

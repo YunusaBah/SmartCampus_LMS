@@ -68,7 +68,9 @@ See `backend/.env.example`.
 | `VITE_SUPABASE_URL` | Public Supabase project URL, used for chat Realtime |
 | `VITE_SUPABASE_ANON_KEY` | Public Supabase anon/publishable key, used for chat Realtime |
 
-Local dev uses `frontend/.env.development` (`http://localhost:5000`). On Vercel,
-leave `VITE_API_URL` unset so the frontend uses its same-origin `/api` routes.
+Local dev uses `frontend/.env.development` (`http://localhost:5000`) or defaults
+to that backend URL. Production builds always use the same-origin `/api` routes;
+`VITE_API_URL` is only read in development, so a stale production value cannot
+send users to localhost or another API host.
 Database credentials and `SUPABASE_JWT_SECRET` belong only in the backend
 environment; never use a `VITE_` prefix for private keys.
