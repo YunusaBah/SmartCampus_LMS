@@ -32,8 +32,7 @@ const FloatingChatHost = () => {
         };
     }, []);
 
-    const canUseChat = user?.role === "student" ||
-        user?.email?.trim().toLowerCase() === "bahy1878@gmail.com";
+    const canUseChat = user?.role === "student";
     if (!canUseChat) return null;
 
     if (activated) {

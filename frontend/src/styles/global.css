@@ -1810,7 +1810,7 @@ body {
 
 .portfolio-intro {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(180px, 0.42fr);
+    grid-template-columns: minmax(0, 1fr);
     align-items: center;
     gap: clamp(28px, 5vw, 60px);
     min-height: 0;
@@ -1818,7 +1818,7 @@ body {
 }
 
 .portfolio-intro-copy {
-    max-width: 560px;
+    max-width: 760px;
 }
 
 .portfolio-eyebrow {
@@ -2511,8 +2511,9 @@ body {
     margin-bottom: 18px;
 }
 
-.register-method-picker > .register-submit {
-    width: min(100%, 360px);
+.register-method-picker > .register-submit,
+.register-method-picker .google-signin-wrap {
+    width: 100%;
 }
 
 .register-method-picker .auth-divider {
@@ -2587,14 +2588,18 @@ body {
 }
 
 .google-signin-wrap {
-    width: min(100%, 360px);
-    min-height: 40px;
+    width: 100%;
 }
 
 .google-signin-button {
     display: flex;
+    align-items: center;
     justify-content: center;
-    min-height: 40px;
+    width: 100%;
+    min-height: 48px;
+    border-radius: 7px;
+    background: #fff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
 
 .google-signin-notice {
@@ -10652,7 +10657,7 @@ a:focus-visible {
     .login-portal {
         min-height: 100vh;
         padding: 0 20px 20px;
-        background-attachment: scroll;
+        background-attachment: fixed;
     }
 
     .login-landing {
@@ -10769,7 +10774,7 @@ a:focus-visible {
         z-index: -1;
         background:
             linear-gradient(110deg, rgba(15, 19, 28, 0.26), rgba(15, 19, 28, 0.38)),
-            url("../assets/utg-login-campus.png") center / contain no-repeat;
+            url("../assets/utg-login-campus.png") center / cover no-repeat;
     }
 
     .login-welcome h1 {
@@ -13162,23 +13167,6 @@ p.course-manage-page-heading .course-created-date {
 
 .wa-profile-summary small {
     font-size: 0.72rem;
-}
-
-.wa-featured-developer {
-    margin-bottom: 12px;
-    border: 1px solid var(--theme-accent);
-    border-radius: 10px;
-    background: var(--theme-panel-input);
-}
-
-.wa-featured-developer .wa-course-avatar {
-    overflow: hidden;
-}
-
-.wa-featured-developer .wa-course-avatar img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
 }
 
 .wa-profile-share {

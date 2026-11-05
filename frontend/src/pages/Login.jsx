@@ -327,18 +327,6 @@ const Login = () => {
                         </p>
                         <a className="portfolio-text-link" href="#why-smartcampus">Explore the story <FaArrowRight /></a>
                     </div>
-                    <div className="portfolio-photo-grid">
-                        <figure className="portfolio-photo-primary">
-                            <img
-                                src="/developer-profile.jpeg"
-                                alt="Portrait of Yunusa Bah wearing a black suit and tie"
-                            />
-                            <figcaption>
-                                <strong>Yunusa Bah</strong>
-                                <span>Developer of SmartCampus LMS</span>
-                            </figcaption>
-                        </figure>
-                    </div>
                 </section>
 
                 <section className="portfolio-contact portfolio-reveal" id="contact">

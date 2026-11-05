@@ -81,10 +81,12 @@ const GoogleSignInButton = ({ onCredential, onError }) => {
                 });
                 containerRef.current.replaceChildren();
                 googleIdentity.renderButton(containerRef.current, {
-                    type: "icon",
+                    type: "standard",
                     theme: "outline",
                     size: "large",
-                    shape: "circle"
+                    text: "continue_with",
+                    shape: "rectangular",
+                    logo_alignment: "center"
                 });
                 setReady(true);
             })

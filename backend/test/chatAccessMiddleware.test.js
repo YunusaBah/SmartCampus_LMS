@@ -3,16 +3,9 @@ process.env.DB_NAME = "test";
 process.env.DB_USER = "test";
 process.env.DB_PASSWORD = "test";
 
-const { afterEach, test } = require("node:test");
+const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const User = require("../src/models/User");
 const chatAccessMiddleware = require("../src/middlewares/chatAccessMiddleware");
-
-const originalFindByPk = User.findByPk;
-
-afterEach(() => {
-    User.findByPk = originalFindByPk;
-});
 
 const makeResponse = () => ({
     statusCode: 200,
@@ -28,7 +21,6 @@ const makeResponse = () => ({
 });
 
 test("students can use chat without an extra account lookup", async () => {
-    User.findByPk = async () => assert.fail("Student access should not need a database lookup.");
     let nextCalls = 0;
 
     await chatAccessMiddleware({ user: { id: 8, role: "student" } }, makeResponse(), () => {
@@ -38,23 +30,11 @@ test("students can use chat without an extra account lookup", async () => {
     assert.equal(nextCalls, 1);
 });
 
-test("the verified developer account can use chat with any LMS role", async () => {
-    User.findByPk = async () => ({ email: "BAHY1878@GMAIL.COM" });
-    let nextCalls = 0;
-
-    await chatAccessMiddleware({ user: { id: 8, role: "lecturer" } }, makeResponse(), () => {
-        nextCalls += 1;
-    });
-
-    assert.equal(nextCalls, 1);
-});
-
-test("other lecturer accounts remain excluded from chat", async () => {
-    User.findByPk = async () => ({ email: "lecturer@example.edu" });
+test("lecturer accounts cannot use chat based on their email address", () => {
     const response = makeResponse();
     let nextCalls = 0;
 
-    await chatAccessMiddleware({ user: { id: 8, role: "lecturer" } }, response, () => {
+    chatAccessMiddleware({ user: { id: 8, role: "lecturer", email: "developer@example.edu" } }, response, () => {
         nextCalls += 1;
     });
 

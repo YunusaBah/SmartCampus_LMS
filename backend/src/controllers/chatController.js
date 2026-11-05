@@ -15,10 +15,6 @@ const ChatHiddenMessage = require("../models/ChatHiddenMessage");
 const chatRealtime = require("../utils/chatRealtime");
 const objectStorage = require("../utils/objectStorage");
 
-const developerEmail = "bahy1878@gmail.com";
-const developerUsername = "Yunusa Bah";
-const developerBio = "the brain behind the smartcampus";
-const developerAvatar = "/developer-profile.jpg";
 const messageTypes = new Set(["text", "emoji", "gif", "sticker", "voice", "image", "file", "contact"]);
 const profileFields = ["id", "username", "fullName", "avatarUrl", "about"];
 const contactVisibilityFields = ["phoneVisibility", "emailVisibility", "matNumberVisibility"];
@@ -38,60 +34,6 @@ const usernameOwner = (username) => ChatProfile.findOne({
     where: sequelize.where(sequelize.fn("LOWER", sequelize.col("username")), username.toLowerCase()),
     attributes: ["userId"]
 });
-
-const isDeveloperAccount = (user) => typeof user?.email === "string" &&
-    user.email.trim().toLowerCase() === developerEmail;
-
-const ensureDeveloperProfile = async (user) => {
-    if (!isDeveloperAccount(user)) return null;
-    const existingOwner = await usernameOwner(developerUsername);
-    if (existingOwner && Number(existingOwner.userId) !== Number(user.id)) {
-        throw new Error(`The reserved SmartCampus developer username is already assigned to user ${existingOwner.userId}.`);
-    }
-
-    const [profile, created] = await ChatProfile.findOrCreate({
-        where: { userId: user.id },
-        defaults: {
-            userId: user.id,
-            username: developerUsername,
-            fullName: "Yunusa Bah",
-            avatarUrl: developerAvatar,
-            about: developerBio,
-            phoneVisibility: "private_contacts",
-            emailVisibility: "private_contacts",
-            matNumberVisibility: "private_contacts"
-        }
-    });
-    const shouldSetPrivateDefaults = created || profile.username.toLowerCase() !== developerUsername.toLowerCase();
-    const updates = {
-        username: developerUsername,
-        fullName: "Yunusa Bah",
-        avatarUrl: developerAvatar,
-        about: developerBio
-    };
-    if (shouldSetPrivateDefaults) {
-        Object.assign(updates, {
-            phoneVisibility: "private_contacts",
-            emailVisibility: "private_contacts",
-            matNumberVisibility: "private_contacts"
-        });
-    }
-    if (Object.entries(updates).some(([field, value]) => profile[field] !== value)) {
-        Object.assign(profile, updates);
-        await profile.save();
-    }
-    return profile;
-};
-
-const getDeveloperProfile = async (viewerUserId) => {
-    const user = await User.findOne({
-        where: sequelize.where(sequelize.fn("LOWER", sequelize.col("email")), developerEmail),
-        attributes: ["id", "email", "fullName"]
-    });
-    if (!user) return null;
-    const profile = await ensureDeveloperProfile(user);
-    return Number(user.id) === Number(viewerUserId) ? null : profile;
-};
 
 const summarizeReactions = (reactions = [], profileId) => {
     const summaries = new Map();
@@ -191,9 +133,8 @@ const canAccessMessage = async (message, profile) => {
 
 exports.getMe = async (req, res, next) => {
     try {
-        const user = await User.findByPk(req.user.id, { attributes: ["id", "fullName", "email"] });
+        const user = await User.findByPk(req.user.id, { attributes: ["id", "fullName"] });
         if (!user) return res.status(404).json({ message: "Account not found" });
-        await ensureDeveloperProfile(user);
         const profile = await profileFor(req.user.id);
         if (!profile) {
             return res.json({
@@ -337,11 +278,8 @@ exports.saveProfile = async (req, res, next) => {
             }
         }
 
-        const user = await User.findByPk(req.user.id, { attributes: ["id", "fullName", "email"] });
+        const user = await User.findByPk(req.user.id, { attributes: ["id", "fullName"] });
         if (!user) return res.status(404).json({ message: "Account not found" });
-        if (username.toLowerCase() === developerUsername.toLowerCase() && !isDeveloperAccount(user)) {
-            return res.status(409).json({ message: "That chat username is reserved for the SmartCampus developer." });
-        }
         const existingUsername = await usernameOwner(username);
         if (existingUsername && Number(existingUsername.userId) !== Number(req.user.id)) {
             return res.status(409).json({ message: "That chat username is already taken." });
@@ -379,10 +317,6 @@ exports.checkUsernameAvailability = async (req, res, next) => {
             return res.status(400).json({
                 message: "Username must contain 1–20 characters and cannot include control characters."
             });
-        }
-        if (username.toLowerCase() === developerUsername.toLowerCase()) {
-            const user = await User.findByPk(req.user.id, { attributes: ["email"] });
-            if (!isDeveloperAccount(user)) return res.json({ available: false });
         }
         const owner = await usernameOwner(username);
         return res.json({
@@ -464,10 +398,8 @@ exports.listCoursemates = async (req, res, next) => {
         const ownProfile = await profileFor(req.user.id);
         if (!ownProfile) return profileMissing(res);
         let courseIds = await enrolledCourseIds(req.user.id);
-        const isDefaultList = req.query.courseId == null && !req.query.withProfileId;
-        const featuredProfile = isDefaultList ? await getDeveloperProfile(req.user.id) : null;
         if (!courseIds.length) {
-            return res.json({ profiles: [], featuredProfile: safeProfile(featuredProfile) });
+            return res.json({ profiles: [] });
         }
         if (req.query.courseId != null) {
             const courseId = Number(req.query.courseId);
@@ -492,7 +424,7 @@ exports.listCoursemates = async (req, res, next) => {
             );
         }
         if (!courseIds.length) {
-            return res.json({ profiles: [], featuredProfile: safeProfile(featuredProfile) });
+            return res.json({ profiles: [] });
         }
         const enrollments = await Enrollment.findAll({
             where: {
@@ -507,10 +439,7 @@ exports.listCoursemates = async (req, res, next) => {
             attributes: profileFields,
             order: [["username", "ASC"]]
         }) : [];
-        return res.json({
-            profiles: profiles.filter((item) => item.id !== featuredProfile?.id).map(safeProfile),
-            featuredProfile: safeProfile(featuredProfile)
-        });
+        return res.json({ profiles: profiles.map(safeProfile) });
     } catch (error) {
         return next(error);
     }

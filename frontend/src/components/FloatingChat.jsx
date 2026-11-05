@@ -84,14 +84,12 @@ const readSavedChatMedia = (userId) => {
 
 const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     const [user, setUser] = useState(getUser);
-    const canUseChat = user?.role === "student" ||
-        user?.email?.trim().toLowerCase() === "bahy1878@gmail.com";
+    const canUseChat = user?.role === "student";
     const [open, setOpen] = useState(initialOpen);
     const [chatLoaded, setChatLoaded] = useState(false);
     const [profile, setProfile] = useState(null);
     const [courses, setCourses] = useState([]);
     const [coursemates, setCoursemates] = useState([]);
-    const [featuredDeveloper, setFeaturedDeveloper] = useState(null);
     const [coursematesLoading, setCoursematesLoading] = useState(false);
     const [privateChats, setPrivateChats] = useState([]);
     const [chatFolder, setChatFolder] = useState("all");
@@ -219,7 +217,6 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
             setTypingUsers([]);
             setShareAnnouncement(null);
             setShareError("");
-            setFeaturedDeveloper(null);
         };
         window.addEventListener("smartcampus:account-changed", syncAccount);
         window.addEventListener("storage", syncAccount);
@@ -871,7 +868,6 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                     : undefined;
             const response = await API.get("/chat/coursemates", { params, skipOfflineCache: true });
             setCoursemates(response.data.profiles || []);
-            setFeaturedDeveloper(params ? null : response.data.featuredProfile || null);
             return response.data.profiles || [];
         } catch (requestError) {
             setError(requestError.response?.data?.message || "Unable to load your coursemates.");
@@ -1236,8 +1232,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
         `${member.fullName} ${member.username}`.toLowerCase().includes(query.trim().toLowerCase())
     ), [coursemates, query]);
     const usernameSearchIsCoursemate = usernameSearchProfile
-        && (coursemates.some((member) => member.id === usernameSearchProfile.id) ||
-            usernameSearchProfile.id === featuredDeveloper?.id);
+        && coursemates.some((member) => member.id === usernameSearchProfile.id);
     const visibleChats = useMemo(() => {
         const courseItems = chatFolder === "private" ? [] : filteredCourses.map((course) => ({
             key: `course-${course.id}`,
@@ -1922,31 +1917,6 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                     <p className="wa-empty" role="status">Loading your coursemates...</p>
                                 ) : (
                                     <>
-                                        {featuredDeveloper && (
-                                            <>
-                                                <p className="wa-section-label">SMARTCAMPUS DEVELOPER</p>
-                                                <button
-                                                    type="button"
-                                                    className="wa-conversation-row wa-featured-developer"
-                                                    onClick={() => openConversation({
-                                                        key: `private-${featuredDeveloper.id}`,
-                                                        id: featuredDeveloper.id,
-                                                        type: "private",
-                                                        title: featuredDeveloper.fullName,
-                                                        participant: featuredDeveloper
-                                                    })}
-                                                >
-                                                    <span className="wa-course-avatar wa-private-avatar">
-                                                        <img src={featuredDeveloper.avatarUrl} alt="" />
-                                                    </span>
-                                                    <span className="wa-conversation-main">
-                                                        <strong>{featuredDeveloper.fullName}</strong>
-                                                        <small>@{featuredDeveloper.username}</small>
-                                                        <small>{featuredDeveloper.about}</small>
-                                                    </span>
-                                                </button>
-                                            </>
-                                        )}
                                         {matchingCoursemates.map((member) => (
                                     <button
                                         type="button"
@@ -2001,7 +1971,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                         </button>
                                     </>
                                 )}
-                                {!coursematesLoading && !query.trim() && !coursemates.length && !featuredDeveloper && (
+                                {!coursematesLoading && !query.trim() && !coursemates.length && (
                                     <p className="wa-empty">No coursemates have created a chat profile yet.</p>
                                 )}
                                 {!coursematesLoading && query.trim() && !matchingCoursemates.length
