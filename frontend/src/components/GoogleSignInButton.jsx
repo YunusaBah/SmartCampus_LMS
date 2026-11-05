@@ -3,6 +3,8 @@ import API from "../services/api";
 
 const GOOGLE_SCRIPT = "https://accounts.google.com/gsi/client";
 let scriptPromise;
+let initializedClientId;
+let activeGoogleHandlers;
 
 const loadGoogleIdentity = () => {
     if (window.google?.accounts?.id) return Promise.resolve(window.google.accounts.id);
@@ -28,6 +30,7 @@ const loadGoogleIdentity = () => {
 
 const GoogleSignInButton = ({ onCredential, onError }) => {
     const containerRef = useRef(null);
+    const ownerRef = useRef({});
     const credentialHandler = useRef(onCredential);
     const errorHandler = useRef(onError);
     const [ready, setReady] = useState(false);
@@ -40,6 +43,21 @@ const GoogleSignInButton = ({ onCredential, onError }) => {
         credentialHandler.current = onCredential;
         errorHandler.current = onError;
     }, [onCredential, onError]);
+
+    useEffect(() => {
+        const owner = ownerRef.current;
+        activeGoogleHandlers = {
+            owner,
+            onCredential: (...args) => credentialHandler.current(...args),
+            onError: (...args) => errorHandler.current?.(...args)
+        };
+
+        return () => {
+            if (activeGoogleHandlers?.owner === owner) {
+                activeGoogleHandlers = undefined;
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (clientId) return undefined;
@@ -71,14 +89,17 @@ const GoogleSignInButton = ({ onCredential, onError }) => {
         loadGoogleIdentity()
             .then((googleIdentity) => {
                 if (!active || !containerRef.current) return;
-                googleIdentity.initialize({
-                    client_id: clientId,
-                    auto_select: false,
-                    callback: (response) => {
-                        if (response.credential) credentialHandler.current(response.credential);
-                        else errorHandler.current?.("Google did not return a sign-in credential.");
-                    }
-                });
+                if (initializedClientId !== clientId) {
+                    googleIdentity.initialize({
+                        client_id: clientId,
+                        auto_select: false,
+                        callback: (response) => {
+                            if (response.credential) activeGoogleHandlers?.onCredential(response.credential);
+                            else activeGoogleHandlers?.onError("Google did not return a sign-in credential.");
+                        }
+                    });
+                    initializedClientId = clientId;
+                }
                 containerRef.current.replaceChildren();
                 googleIdentity.renderButton(containerRef.current, {
                     type: "standard",

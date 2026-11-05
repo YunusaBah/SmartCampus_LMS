@@ -86,7 +86,7 @@ the same services.
 | `DB_POOL_MAX` | `2` for serverless functions |
 | `JWT_SECRET` | Random secret of at least 32 characters |
 | `GOOGLE_CLIENT_ID` | Google OAuth Web client ID |
-| `CLIENT_URL` | Exact production origin, e.g. `https://your-project.vercel.app` |
+| `CLIENT_URL` | Comma-separated frontend origins, e.g. `https://your-project.vercel.app` |
 | `SUPABASE_JWT_SECRET` | Backend-only Supabase JWT signing secret; required for chat Realtime tokens |
 | `SUPABASE_URL` | Supabase project URL for backend Storage access |
 | `SUPABASE_SERVICE_ROLE_KEY` | Backend-only Supabase service-role key for signed uploads, private downloads, and file cleanup |
@@ -104,6 +104,12 @@ this same-origin deployment. Redeploy after changing frontend environment
 variables because Vite embeds them at build time. Google sign-in reads its
 public client ID from the backend configuration, so `VITE_GOOGLE_CLIENT_ID` is
 optional; set it only if you want to configure the browser button directly.
+
+If the frontend calls a separately hosted backend, set `CLIENT_URL` in the
+backend environment to the exact frontend origin (scheme and hostname, with no
+path or trailing slash). Multiple origins can be comma-separated. Add each
+frontend preview origin to the Preview environment as needed, then redeploy the
+backend. Do not use `*` for credentialed CORS requests.
 
 Do not put `.env` files, database credentials, JWT secrets, or API keys in Git.
 `VITE_*` values are included in browser code: only the Supabase anon/publishable
