@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.118.0",
+    "@vercel/speed-insights": "^2.1.0",
     "axios": "^1.16.1",
     "emoji-picker-react": "^5.1.4",
     "react": "^19.2.6",
