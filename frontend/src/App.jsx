@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { lazy, Suspense, useEffect, useState } from "react";
+import { Analytics } from "@vercel/analytics/react";
 
 import Layout from "./components/Layout";
 import FloatingChatHost from "./components/FloatingChatHost";
@@ -199,6 +200,7 @@ function App() {
                 </Routes>
             </Suspense>
             <FloatingChatHost />
+            <Analytics />
         </BrowserRouter>
     );
 }
