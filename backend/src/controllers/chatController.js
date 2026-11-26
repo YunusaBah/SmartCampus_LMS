@@ -960,6 +960,8 @@ exports.streamEvents = async (req, res, next) => {
         const heartbeat = setInterval(() => {
             if (!res.writableEnded) res.write(": keep-alive\n\n");
         }, 20000);
+        // Course membership changes are uncommon; refresh at a lower cadence
+        // to avoid a database query every five seconds for every connected student.
         const membershipRefresh = setInterval(async () => {
             try {
                 chatRealtime.updateUserCourses(req.user.id, await enrolledCourseIds(req.user.id));
@@ -967,7 +969,7 @@ exports.streamEvents = async (req, res, next) => {
                 console.error("Chat stream membership refresh failed:", error.message);
                 res.end();
             }
-        }, 5000);
+        }, 60_000);
         res.on("close", () => {
             clearInterval(heartbeat);
             clearInterval(membershipRefresh);
