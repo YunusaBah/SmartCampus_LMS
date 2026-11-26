@@ -46,3 +46,26 @@ For an existing installation, do not assume that changing the runtime entrypoint
 5. Check Vercel function duration/CPU and Supabase connection usage after real traffic.
 
 This runbook does not claim that the current production environment has been tested. Validate environment variables and the production database before promoting a deployment.
+
+## Serverless CPU and request-volume controls
+
+SmartCampus uses event-driven chat updates where Realtime is configured. The polling intervals below are fallback checks, not the primary notification mechanism:
+
+- The server chat SSE connection is opened only while the chat panel is open and the browser tab is visible. It is aborted when the panel closes or the tab is backgrounded.
+- The browser applies exponential backoff when a chat event stream disconnects, so an immediately closed stream cannot trigger a tight reconnect loop.
+- Server-side course-membership refresh for an active SSE connection runs every 60 seconds instead of every 5 seconds.
+- The chat-list fallback refresh runs every 60 seconds instead of every 12 seconds and pauses while the page is hidden.
+- The private lecturer/student inbox fallback refresh runs every 60 seconds instead of every 10 seconds, skips hidden/offline tabs, and prevents overlapping requests.
+
+These changes reduce repeated database work and unnecessary requests; they do not replace measurement. After the project is re-enabled and serving real traffic, compare the Vercel Usage/Functions metrics over equivalent periods:
+1. Function Active CPU time (not just wall-clock duration).
+2. Function invocations and function duration.
+3. Top function paths and error rate.
+4. Supabase database CPU, active connections, and query load.
+
+On the current Hobby connection, runtime logs have only a short retention window; the project API connection used for this review also reports that Observability Plus is not enabled. Therefore no historical CPU total can be honestly reported from this audit. The production deployment currently responds with `402 DEPLOYMENT_DISABLED`, so post-change production CPU and health measurements must wait until Vercel re-enables deployments.
+
+## CI checks
+
+The GitHub Actions workflow `.github/workflows/ci.yml` runs the backend test suite and frontend production build on pushes to `main`/fix branches and on pull requests targeting `main`. It intentionally does not receive production secrets or run database migrations.
+
