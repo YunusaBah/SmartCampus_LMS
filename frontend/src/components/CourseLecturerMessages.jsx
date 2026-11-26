@@ -2,10 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { FaCommentDots, FaPaperPlane } from "react-icons/fa";
 import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
-import useOfflineRefresh from "../hooks/useOfflineRefresh";
 
 const CourseLecturerMessages = ({ courseId, isLecturer, canMessageLecturer }) => {
-    const offlineRefresh = useOfflineRefresh();
     const { user } = useAuth();
     const [messages, setMessages] = useState([]);
     const [students, setStudents] = useState([]);
@@ -25,9 +23,14 @@ const CourseLecturerMessages = ({ courseId, isLecturer, canMessageLecturer }) =>
 
     useEffect(() => {
         if (!canAccessInbox) return undefined;
+
         let active = true;
-        const loadMessages = () => API.get(`/courses/${courseId}/lecturer-messages`)
-            .then((response) => {
+        let refreshing = false;
+        const loadMessages = async () => {
+            if (!active || refreshing || document.visibilityState !== "visible" || !navigator.onLine) return;
+            refreshing = true;
+            try {
+                const response = await API.get(`/courses/${courseId}/lecturer-messages`);
                 if (!active) return;
                 setError("");
                 if (isLecturer) {
@@ -46,20 +49,32 @@ const CourseLecturerMessages = ({ courseId, isLecturer, canMessageLecturer }) =>
                 } else {
                     setMessages(response.data);
                 }
-            })
-            .catch((requestError) => {
+            } catch (requestError) {
                 if (active) setError(requestError.response?.data?.message || "Unable to load course messages.");
-            })
-            .finally(() => {
+            } finally {
+                refreshing = false;
                 if (active) setLoadedKey(inboxKey);
-            });
+            }
+        };
+
+        // Realtime/offline signals provide prompt updates; this 60-second check
+        // is only a fallback and must not keep querying while the tab is hidden.
+        const refreshTimer = window.setInterval(loadMessages, 60_000);
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") loadMessages();
+        };
+        const handleOnline = () => loadMessages();
+
         loadMessages();
-        const refreshTimer = window.setInterval(loadMessages, 10000);
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        window.addEventListener("online", handleOnline);
         return () => {
             active = false;
             window.clearInterval(refreshTimer);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+            window.removeEventListener("online", handleOnline);
         };
-    }, [canAccessInbox, courseId, inboxKey, isLecturer, offlineRefresh, user?.id]);
+    }, [canAccessInbox, courseId, inboxKey, isLecturer, user?.id]);
 
     const sendMessage = async (event) => {
         event.preventDefault();
