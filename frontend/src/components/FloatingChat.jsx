@@ -353,34 +353,41 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
     }, [privateChatKey, privateChatProfileId]);
 
     useEffect(() => {
-        if (!profile) return undefined;
-        const controller = new AbortController();
+        // The live stream is only needed while the chat panel is actively open.
+        // Keeping it alive for every signed-in user creates unnecessary long-lived
+        // serverless invocations, even when the chat UI is closed.
+        if (!open || !profile) return undefined;
+
+        let disposed = false;
+        let activeController = null;
         const pause = (delay) => new Promise((resolve) => window.setTimeout(resolve, delay));
-        const consumeEvents = async () => {
+
+        const consumeEvents = async (connection) => {
             let retryDelay = 1000;
-            while (!controller.signal.aborted) {
+            while (!disposed && !connection.signal.aborted) {
+                const connectedAt = Date.now();
                 try {
                     const response = await fetch(`${API.defaults.baseURL}/chat/events`, {
                         headers: { Authorization: `Bearer ${localStorage.getItem("token") || ""}` },
-                        signal: controller.signal
+                        signal: connection.signal
                     });
                     if (!response.ok || !response.body) {
                         if (response.status === 401) throw new Error("Your chat session expired. Please sign in again.");
                         throw new Error("Chat connection is unavailable.");
                     }
-                    retryDelay = 1000;
+
                     const reader = response.body.getReader();
                     const decoder = new TextDecoder();
                     let buffer = "";
-                    while (!controller.signal.aborted) {
+                    while (!connection.signal.aborted) {
                         const { value, done } = await reader.read();
                         if (done) break;
                         buffer += decoder.decode(value, { stream: true });
-                        const blocks = buffer.split(/\r?\n\r?\n/);
+                        const blocks = buffer.split(/\\r?\\n\\r?\\n/);
                         buffer = blocks.pop() || "";
                         for (const block of blocks) {
-                            const event = block.match(/^event:\s*(.+)$/m)?.[1];
-                            const payload = block.match(/^data:\s*(.+)$/m)?.[1];
+                            const event = block.match(/^event:\\s*(.+)$/m)?.[1];
+                            const payload = block.match(/^data:\\s*(.+)$/m)?.[1];
                             if (!event || !payload) continue;
                             const data = JSON.parse(payload);
                             if (event === "ready") {
@@ -403,10 +410,11 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                                     loadMessages(chat, true).then(() => refresh()).catch((requestError) => {
                                         setError(requestError.response?.data?.message || "Unable to update chat status.");
                                     });
+                                } else {
+                                    refresh().catch((requestError) => {
+                                        setError(requestError.response?.data?.message || "Unable to update unread messages.");
+                                    });
                                 }
-                                else refresh().catch((requestError) => {
-                                    setError(requestError.response?.data?.message || "Unable to update unread messages.");
-                                });
                             } else if (event === "typing") {
                                 const chat = currentChatRef.current;
                                 const belongsToActive = chat?.type === "course"
@@ -449,24 +457,59 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                             }
                         }
                     }
-                } catch (requestError) {
-                    if (controller.signal.aborted) break;
-                    setError(requestError.message || "Chat connection was interrupted.");
+
+                    if (disposed || connection.signal.aborted) break;
+                    // A healthy stream can be closed by the serverless runtime after
+                    // its configured maximum duration. Back off on short disconnects
+                    // rather than immediately creating another invocation.
+                    retryDelay = Date.now() - connectedAt >= 30_000
+                        ? 1000
+                        : Math.min(retryDelay * 2, 30_000);
                     await pause(retryDelay);
-                    retryDelay = Math.min(retryDelay * 2, 10000);
+                } catch (requestError) {
+                    if (disposed || connection.signal.aborted) break;
+                    setError(requestError.message || "Chat connection was interrupted.");
+                    retryDelay = Date.now() - connectedAt >= 30_000
+                        ? 1000
+                        : Math.min(retryDelay * 2, 30_000);
+                    await pause(retryDelay);
                 }
             }
         };
-        consumeEvents();
-        return () => {
-            controller.abort();
+
+        const startConnection = () => {
+            if (disposed || document.visibilityState !== "visible" || activeController) return;
+            const connection = new AbortController();
+            activeController = connection;
+            consumeEvents(connection).finally(() => {
+                if (activeController === connection) activeController = null;
+            });
         };
-    }, [profile, loadMessages, refresh]);
+
+        const stopConnection = () => {
+            if (!activeController) return;
+            activeController.abort();
+            activeController = null;
+        };
+
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") startConnection();
+            else stopConnection();
+        };
+
+        startConnection();
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        return () => {
+            disposed = true;
+            stopConnection();
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        };
+    }, [open, profile, loadMessages, refresh]);
 
     useEffect(() => {
         const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
         const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-        if (!profile || !supabaseUrl || !anonKey) {
+        if (!open || !profile || !supabaseUrl || !anonKey) {
             supabaseRealtimeActiveRef.current = false;
             const fallbackTimer = window.setTimeout(() => setRealtimeMode("server"), 0);
             return () => window.clearTimeout(fallbackTimer);
@@ -555,7 +598,7 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
             window.clearInterval(tokenRefresh);
             if (channel && client) client.removeChannel(channel);
         };
-    }, [profile, loadMessages, refresh]);
+    }, [open, profile, loadMessages, refresh]);
 
     useEffect(() => {
         if (!open || !profile) return undefined;
@@ -616,12 +659,31 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
 
     useEffect(() => {
         if (!open || !profile || activeChat) return undefined;
-        const interval = window.setInterval(() => {
-            refresh().catch((requestError) => {
+
+        let refreshing = false;
+        const refreshWhenVisible = async () => {
+            if (document.visibilityState !== "visible" || refreshing) return;
+            refreshing = true;
+            try {
+                await refresh();
+            } catch (requestError) {
                 setError(requestError.response?.data?.message || "Unable to refresh chat list.");
-            });
-        }, 12000);
-        return () => window.clearInterval(interval);
+            } finally {
+                refreshing = false;
+            }
+        };
+
+        // Realtime events normally update the list; this is a low-frequency
+        // fallback for missed events and is paused while the tab is backgrounded.
+        const interval = window.setInterval(refreshWhenVisible, 60_000);
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === "visible") refreshWhenVisible();
+        };
+        document.addEventListener("visibilitychange", handleVisibilityChange);
+        return () => {
+            window.clearInterval(interval);
+            document.removeEventListener("visibilitychange", handleVisibilityChange);
+        };
     }, [open, profile, activeChat, refresh]);
 
     useEffect(() => {
