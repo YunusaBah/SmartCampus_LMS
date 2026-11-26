@@ -1,3 +1,9 @@
+process.env.DB_DIALECT = "postgres";
+process.env.DB_HOST = "127.0.0.1";
+process.env.DB_NAME = "test";
+process.env.DB_USER = "test";
+process.env.DB_PASSWORD = "test";
+
 const { after, test } = require("node:test");
 const assert = require("node:assert/strict");
 const { sequelize } = require("../src/config/db");
