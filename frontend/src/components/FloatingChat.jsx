@@ -383,11 +383,11 @@ const FloatingChat = ({ initialOpen = false, initialShare = null }) => {
                         const { value, done } = await reader.read();
                         if (done) break;
                         buffer += decoder.decode(value, { stream: true });
-                        const blocks = buffer.split(/\\r?\\n\\r?\\n/);
+                        const blocks = buffer.split(/\r?\n\r?\n/);
                         buffer = blocks.pop() || "";
                         for (const block of blocks) {
-                            const event = block.match(/^event:\\s*(.+)$/m)?.[1];
-                            const payload = block.match(/^data:\\s*(.+)$/m)?.[1];
+                            const event = block.match(/^event:\s*(.+)$/m)?.[1];
+                            const payload = block.match(/^data:\s*(.+)$/m)?.[1];
                             if (!event || !payload) continue;
                             const data = JSON.parse(payload);
                             if (event === "ready") {
