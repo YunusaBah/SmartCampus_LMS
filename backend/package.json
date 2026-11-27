@@ -16,7 +16,7 @@
   "license": "ISC",
   "type": "commonjs",
   "engines": {
-    "node": ">=18"
+    "node": ">=24.7.0"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
