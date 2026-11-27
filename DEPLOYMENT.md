@@ -176,10 +176,13 @@ can also consume quota. Review the Supabase organisation's usage page regularly.
 
 The quota check reads object sizes across **all buckets in this Supabase
 project**, then adds reserved capacity for signed uploads that have not arrived
-in Storage yet. Upload capacity is reserved before a signed upload link is
-issued. Concurrent reservations are serialized in PostgreSQL to avoid two
-simultaneous uploads consuming the same remaining capacity. Uploads fail closed
-with a capacity error if the quota cannot be checked.
+in Storage yet. Each unfinished upload grant temporarily reserves up to the
+bucket's 20 MB maximum, even when the browser declares a smaller file. The
+backend verifies the actual uploaded byte count against the declared size
+before accepting the file. Concurrent reservations are serialized in
+PostgreSQL to avoid simultaneous uploads consuming the same remaining
+capacity. Uploads fail closed if the quota or any existing object's size cannot
+be verified.
 
 The authenticated `GET /api/storage/usage` endpoint powers **Settings →
 Storage usage**. It shows project usage, pending upload reservations, remaining
