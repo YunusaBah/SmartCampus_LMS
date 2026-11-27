@@ -56,6 +56,7 @@ SmartCampus uses event-driven chat updates where Realtime is configured. The pol
 - Server-side course-membership refresh for an active SSE connection runs every 60 seconds instead of every 5 seconds.
 - The chat-list fallback refresh runs every 60 seconds instead of every 12 seconds and pauses while the page is hidden.
 - The private lecturer/student inbox fallback refresh runs every 60 seconds instead of every 10 seconds, skips hidden/offline tabs, and prevents overlapping requests.
+- The shared stale-cache refresh fallback runs every 60 seconds instead of every 30 seconds and dispatches refresh events only while the page is visible and online.
 
 These changes reduce repeated database work and unnecessary requests; they do not replace measurement. After the project is re-enabled and serving real traffic, compare the Vercel Usage/Functions metrics over equivalent periods:
 1. Function Active CPU time (not just wall-clock duration).
