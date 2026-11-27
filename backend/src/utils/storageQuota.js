@@ -137,7 +137,7 @@ const reserveStorageUpload = async ({ userId, objectKey, sizeBytes, purpose }) =
         const requestedBytes = bytesFrom(sizeBytes);
         const accountedBytes = usage.usedBytes + usage.reservedBytes;
 
-        if (accountedBytes + requestedBytes > STORAGE_QUOTA_BYTES) {
+        if (accountedBytes + MAX_BUCKET_OBJECT_BYTES > STORAGE_QUOTA_BYTES) {
             const remainingBytes = Math.max(0, STORAGE_QUOTA_BYTES - accountedBytes);
             const error = new Error(
                 remainingBytes > 0
