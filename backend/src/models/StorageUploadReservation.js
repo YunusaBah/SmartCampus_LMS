@@ -6,6 +6,7 @@ const StorageUploadReservation = sequelize.define("StorageUploadReservation", {
     userId: { type: DataTypes.INTEGER, allowNull: false },
     objectKey: { type: DataTypes.STRING(180), allowNull: false },
     sizeBytes: { type: DataTypes.BIGINT, allowNull: false },
+    reservedBytes: { type: DataTypes.BIGINT, allowNull: false },
     purpose: { type: DataTypes.STRING(32), allowNull: false },
     status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: "pending" },
     expiresAt: { type: DataTypes.DATE, allowNull: true },
