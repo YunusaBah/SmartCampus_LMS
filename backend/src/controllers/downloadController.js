@@ -137,7 +137,10 @@ const resolveLocalPath = async (fileUrl) => {
 
 const loadResourceContent = async (resource) => {
     const key = objectKeyFor(resource.fileUrl);
-    if (key) return { ...resource, buffer: await objectStorage.download(key) };
+    if (key) {
+        await storageQuota.recordStorageDownload(key);
+        return { ...resource, buffer: await objectStorage.download(key) };
+    }
     const filePath = await resolveLocalPath(resource.fileUrl);
     return filePath ? { ...resource, filePath } : null;
 };
