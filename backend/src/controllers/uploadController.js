@@ -6,6 +6,7 @@ const Lesson = require("../models/Lesson");
 const Submission = require("../models/Submission");
 const { hasCoursePermission } = require("../utils/coursePermissions");
 const objectStorage = require("../utils/objectStorage");
+const storageQuota = require("../utils/storageQuota");
 
 const parseId = (value) => {
     const id = Number(value);
@@ -84,11 +85,19 @@ exports.signUpload = async (req, res, next) => {
                 fileName: req.body.fileName,
                 fileSize: Number(req.body.fileSize),
                 purpose,
-                mediaType: req.body.mediaType
+                mediaType: req.body.mediaType,
+                beforeSign: storageQuota.reserveStorageUpload,
+                onSignFailure: ({ objectKey }) => storageQuota.releaseStorageReservation(objectKey)
             });
             res.set("Cache-Control", "no-store");
             return res.json(upload);
         } catch (error) {
+            if (error.code === "STORAGE_QUOTA_EXCEEDED") {
+                return deny(res, 413, error.message);
+            }
+            if (error.code === "STORAGE_USAGE_UNAVAILABLE") {
+                return deny(res, 503, "Storage capacity could not be verified. Please try again later.");
+            }
             if (error.message.startsWith("Choose a valid") ||
                 error.message.startsWith("Unsupported") ||
                 error.message.startsWith("Files must")) {
