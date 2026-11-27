@@ -46,6 +46,7 @@ test("authorized lecturers can preview spreadsheet cell contents", async () => {
     );
 
     try {
+        await fs.mkdir(uploadsDirectory, { recursive: true });
         XLSX.writeFile(workbook, filePath);
         Lesson.findByPk = async () => ({
             courseId: 2,
@@ -78,6 +79,7 @@ test("authorized lecturers can preview PowerPoint text by slide", async () => {
     const originalCourseFindByPk = Course.findByPk;
 
     try {
+        await fs.mkdir(uploadsDirectory, { recursive: true });
         const presentation = new AdmZip();
         presentation.addFile(
             "ppt/slides/slide1.xml",

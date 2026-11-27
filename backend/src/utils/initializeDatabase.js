@@ -1,26 +1,18 @@
-const { sequelize, connectDB } = require("../config/db");
+const { connectDB } = require("../config/db");
 require("../models/associations");
-const runMigrations = require("./runMigrations");
-const runChatSecurity = require("./chatSecurity");
 
-let databaseInitialization;
+// A serverless instance should only establish its database connection.
+// Schema migrations, Sequelize sync, indexes, and database security policies
+// are deployment tasks and must not run on user requests/cold starts.
+let databaseConnection;
 
 module.exports = () => {
-    if (!databaseInitialization) {
-        databaseInitialization = (async () => {
-            await connectDB();
-            await runMigrations();
-            await sequelize.sync();
-            if (runMigrations.ensureIdentityIndexes) {
-                await runMigrations.ensureIdentityIndexes();
-            }
-            await runChatSecurity();
-            console.log("Database synced");
-        })().catch((error) => {
-            databaseInitialization = undefined;
+    if (!databaseConnection) {
+        databaseConnection = connectDB().catch((error) => {
+            databaseConnection = undefined;
             throw error;
         });
     }
 
-    return databaseInitialization;
+    return databaseConnection;
 };

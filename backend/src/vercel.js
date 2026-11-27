@@ -2,6 +2,7 @@ require("./config/env");
 
 const express = require("express");
 const initializeDatabase = require("./utils/initializeDatabase");
+const { isValidJwtSecret } = require("./utils/authConfiguration");
 const api = require("./app");
 
 const app = express();
@@ -11,14 +12,21 @@ app.get(["/health/live", "/api/health/live"], (req, res) => {
 });
 
 app.use(async (req, res, next) => {
+    if (!isValidJwtSecret(process.env.JWT_SECRET)) {
+        return res.status(503).json({
+            message: "The API is not configured correctly. Please contact the administrator."
+        });
+    }
+
     try {
         await initializeDatabase();
-        next();
+        return next();
     } catch (error) {
-        console.error("Vercel API database initialization failed:", error.message);
-        res.status(503).json({ message: "The API database is temporarily unavailable" });
+        console.error("Vercel API database connection failed:", error.message);
+        return res.status(503).json({ message: "The API database is temporarily unavailable" });
     }
 });
+
 app.use(api);
 
 module.exports = app;

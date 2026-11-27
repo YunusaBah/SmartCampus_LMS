@@ -15,18 +15,17 @@ const originalCreate = User.create;
 const originalJwtSecret = process.env.JWT_SECRET;
 const originalGoogleClientId = process.env.GOOGLE_CLIENT_ID;
 const originalFetch = global.fetch;
-process.env.JWT_SECRET = "test-jwt-secret-for-account-registration";
+const testJwtSecret = "test-jwt-secret-for-account-registration";
+process.env.JWT_SECRET = testJwtSecret;
 
 afterEach(() => {
     User.findOne = originalFindOne;
     User.findByPk = originalFindByPk;
     User.create = originalCreate;
     global.fetch = originalFetch;
-    if (originalJwtSecret === undefined) {
-        delete process.env.JWT_SECRET;
-    } else {
-        process.env.JWT_SECRET = originalJwtSecret;
-    }
+    // Each test below issues a token; restore the safe test secret after
+    // the insecure-secret case instead of leaving later tests misconfigured.
+    process.env.JWT_SECRET = testJwtSecret;
     if (originalGoogleClientId === undefined) {
         delete process.env.GOOGLE_CLIENT_ID;
     } else {
