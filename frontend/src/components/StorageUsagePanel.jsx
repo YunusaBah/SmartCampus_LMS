@@ -4,9 +4,9 @@ import API from "../services/api";
 
 const formatBytes = (value) => {
     const bytes = Math.max(0, Number(value) || 0);
-    if (bytes < 1024) return \`\${bytes} B\`;
-    if (bytes < 1024 * 1024) return \`\${(bytes / 1024).toFixed(1)} KB\`;
-    return \`\${(bytes / (1000 * 1000)).toFixed(1)} MB\`;
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1000 * 1000)).toFixed(1)} MB`;
 };
 
 const StorageUsagePanel = () => {
@@ -101,7 +101,7 @@ const StorageUsagePanel = () => {
                 <span>{Number(usage.userObjectCount || 0).toLocaleString()} stored file(s)</span>
             </div>
 
-            <p className={\`storage-usage-notice \${alertClass}\`} role="status">{alertText}</p>
+            <p className={`storage-usage-notice ${alertClass}`} role="status">{alertText}</p>
             <p className="storage-usage-footnote">
                 The 800 MB safety limit leaves a buffer below Supabase Free's 1 GB file-storage allowance.
                 Usage includes all storage buckets in this Supabase project; other projects in your Supabase
