@@ -4,6 +4,7 @@ const StorageUploadReservation = require("../models/StorageUploadReservation");
 const objectStorage = require("./objectStorage");
 
 const STORAGE_QUOTA_BYTES = 800 * 1000 * 1000;
+const MAX_BUCKET_OBJECT_BYTES = 20 * 1024 * 1024;
 const RESERVATION_TTL_HOURS = 24;
 const QUOTA_LOCK_ID = 749203881;
 
@@ -52,7 +53,7 @@ const readUsage = async (userId, transaction) => {
 
     const [reservations] = await sequelize.query(`
         SELECT
-            COALESCE(SUM(r."sizeBytes"), 0)::TEXT AS "reservedBytes"
+            COALESCE(SUM(r."reservedBytes"), 0)::TEXT AS "reservedBytes"
         FROM "StorageUploadReservations" r
         WHERE r.status = 'pending'
             AND r."expiresAt" > NOW()
@@ -66,7 +67,7 @@ const readUsage = async (userId, transaction) => {
 
     const [userReservations] = await sequelize.query(`
         SELECT
-            COALESCE(SUM(r."sizeBytes"), 0)::TEXT AS "userReservedBytes"
+            COALESCE(SUM(r."reservedBytes"), 0)::TEXT AS "userReservedBytes"
         FROM "StorageUploadReservations" r
         WHERE r.status = 'pending'
             AND r."userId" = :userId
@@ -151,6 +152,7 @@ const reserveStorageUpload = async ({ userId, objectKey, sizeBytes, purpose }) =
             userId,
             objectKey,
             sizeBytes: requestedBytes,
+            reservedBytes: MAX_BUCKET_OBJECT_BYTES,
             purpose,
             status: "pending",
             expiresAt: new Date(Date.now() + RESERVATION_TTL_HOURS * 60 * 60 * 1000)
@@ -206,6 +208,7 @@ const recordStorageDownload = async (objectKey) => {
 
 module.exports = {
     STORAGE_QUOTA_BYTES,
+    MAX_BUCKET_OBJECT_BYTES,
     getStorageUsage,
     reserveStorageUpload,
     releaseStorageReservation,
