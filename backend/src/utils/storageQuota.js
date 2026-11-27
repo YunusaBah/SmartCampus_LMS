@@ -17,7 +17,7 @@ const readUsage = async (userId, transaction) => {
         type: QueryTypes.SELECT,
         replacements: {
             bucketName: objectStorage.bucketName,
-            userId: String(userId)
+            userId: Number(userId)
         },
         ...(transaction ? { transaction } : {})
     };
