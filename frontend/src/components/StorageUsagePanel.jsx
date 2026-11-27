@@ -15,9 +15,8 @@ const StorageUsagePanel = () => {
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState("");
 
-    const loadUsage = useCallback(async (isRefresh = false) => {
-        if (isRefresh) setRefreshing(true);
-        else setLoading(true);
+    const loadUsage = useCallback(async () => {
+        setRefreshing(true);
         setError("");
         try {
             const response = await API.get("/storage/usage");
@@ -25,14 +24,27 @@ const StorageUsagePanel = () => {
         } catch (requestError) {
             setError(requestError.response?.data?.message || "Unable to load storage usage right now.");
         } finally {
-            setLoading(false);
             setRefreshing(false);
         }
     }, []);
 
     useEffect(() => {
-        loadUsage();
-    }, [loadUsage]);
+        let active = true;
+        const fetchInitialUsage = async () => {
+            try {
+                const response = await API.get("/storage/usage");
+                if (active) setUsage(response.data);
+            } catch (requestError) {
+                if (active) {
+                    setError(requestError.response?.data?.message || "Unable to load storage usage right now.");
+                }
+            } finally {
+                if (active) setLoading(false);
+            }
+        };
+        fetchInitialUsage();
+        return () => { active = false; };
+    }, []);
 
     if (loading) {
         return <div className="storage-usage-panel" role="status">Checking your storage usage...</div>;
@@ -42,7 +54,7 @@ const StorageUsagePanel = () => {
         return (
             <div className="storage-usage-panel">
                 <p className="settings-status error" role="alert">{error}</p>
-                <button type="button" className="btn btn-inline btn-secondary" onClick={() => loadUsage(true)} disabled={refreshing}>
+                <button type="button" className="btn btn-inline btn-secondary" onClick={loadUsage} disabled={refreshing}>
                     <FaSyncAlt aria-hidden="true" /> {refreshing ? "Checking..." : "Try again"}
                 </button>
             </div>
