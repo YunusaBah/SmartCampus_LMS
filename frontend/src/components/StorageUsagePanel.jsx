@@ -116,8 +116,9 @@ const StorageUsagePanel = () => {
             <p className={`storage-usage-notice ${alertClass}`} role="status">{alertText}</p>
             <p className="storage-usage-footnote">
                 The 800 MB safety limit leaves a buffer below Supabase Free's 1 GB file-storage allowance.
-                Usage includes all storage buckets in this Supabase project; other projects in your Supabase
-                organisation may also use part of the organisation's allowance.
+                Each unfinished signed upload temporarily reserves up to 20 MB to protect the quota from
+                inaccurate file-size claims. Usage includes all storage buckets in this Supabase project;
+                other projects in your Supabase organisation may also use part of the organisation's allowance.
             </p>
         </div>
     );
