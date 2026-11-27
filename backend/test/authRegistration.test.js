@@ -6,6 +6,7 @@ process.env.DB_PASSWORD = "test";
 const { afterEach, test } = require("node:test");
 const assert = require("node:assert/strict");
 const bcrypt = require("bcrypt");
+const { argon2, randomBytes } = require("node:crypto");
 const User = require("../src/models/User");
 const authController = require("../src/controllers/authController");
 
@@ -142,25 +143,11 @@ test("email registration creates a student account without requiring a phone num
     assert.ok(response.body.token);
 });
 
-test("email registration creates lecturer accounts without student-only details", async () => {
-    let createdUser;
-    User.findOne = async ({ where }) => {
-        assert.deepEqual(where, { email: "lecturer@example.edu" });
-        return null;
-    };
-    User.create = async (values) => {
-        createdUser = values;
-        return {
-            id: 22,
-            tokenVersion: 0,
-            ...values,
-            toJSON() {
-                return { ...this };
-            }
-        };
-    };
-
+test("email registration refuses public lecturer account creation", async () => {
+    User.findOne = async () => assert.fail("Lecturer self-registration must be rejected before database lookup");
+    User.create = async () => assert.fail("Lecturer self-registration must not create an account");
     const response = createResponse();
+
     await authController.register({
         body: {
             fullName: "Lecturer Example",
@@ -171,30 +158,25 @@ test("email registration creates lecturer accounts without student-only details"
         }
     }, response);
 
-    assert.equal(response.statusCode, 201);
-    assert.equal(createdUser.role, "lecturer");
-    assert.equal(createdUser.matNumber, null);
-    assert.equal(createdUser.phone, null);
-    assert.equal(createdUser.passwordLoginEnabled, true);
-    assert.equal(await bcrypt.compare("lecturer-password", createdUser.password), true);
-    assert.ok(response.body.token);
+    assert.equal(response.statusCode, 403);
+    assert.match(response.body.message, /provisioned by the university/i);
 });
-
 test("email registration rejects an email that already exists regardless of input casing", async () => {
     User.findOne = async ({ where }) => {
-        assert.deepEqual(where, { email: "lecturer@example.edu" });
-        return { id: 22, email: "lecturer@example.edu" };
+        assert.deepEqual(where, { email: "student@example.edu" });
+        return { id: 22, email: "student@example.edu" };
     };
     User.create = async () => assert.fail("A duplicate email must not create another account");
     const response = createResponse();
 
     await authController.register({
         body: {
-            fullName: "Another Lecturer",
-            email: " Lecturer@Example.edu ",
-            password: "lecturer-password",
-            confirmPassword: "lecturer-password",
-            role: "lecturer"
+            fullName: "Another Student",
+            email: " Student@Example.edu ",
+            password: "student-password",
+            confirmPassword: "student-password",
+            role: "student",
+            matNumber: "STU-2026"
         }
     }, response);
 
@@ -213,7 +195,8 @@ test("email registration rejects mismatched password confirmation on the backend
             email: "student@example.edu",
             password: "student-password",
             confirmPassword: "different-password",
-            role: "lecturer"
+            role: "student",
+            matNumber: "STU-2026"
         }
     }, response);
 
@@ -260,48 +243,71 @@ test("password login refuses to issue a session with an insecure JWT secret", as
     assert.equal(response.body.token, undefined);
 });
 
-test("Google registration creates lecturer accounts without student-only details", async () => {
-    process.env.GOOGLE_CLIENT_ID = "test-google-client-id";
-    global.fetch = async () => ({
-        ok: true,
-        json: async () => ({
-            aud: "test-google-client-id",
-            iss: "https://accounts.google.com",
-            email_verified: true,
-            exp: String(Math.floor(Date.now() / 1000) + 3600),
-            sub: "google-lecturer-123",
-            email: "lecturer@example.edu",
-            name: "Lecturer Example"
-        })
-    });
-
-    let createdUser;
-    User.findOne = async ({ where }) => {
-        assert.deepEqual(where, { email: "lecturer@example.edu" });
-        return null;
-    };
-    User.create = async (values) => {
-        createdUser = values;
-        return {
-            id: 23,
-            tokenVersion: 0,
-            ...values,
-            toJSON() {
-                return { ...this };
-            }
-        };
-    };
+test("Google registration refuses public lecturer account creation before credential exchange", async () => {
+    global.fetch = async () => assert.fail("Lecturer self-registration must be rejected before calling Google");
+    User.findOne = async () => assert.fail("Lecturer self-registration must be rejected before database lookup");
+    User.create = async () => assert.fail("Lecturer self-registration must not create an account");
     const response = createResponse();
 
     await authController.googleRegister({
         body: { credential: "verified-test-credential", role: "lecturer" }
     }, response);
 
-    assert.equal(response.statusCode, 201);
-    assert.equal(createdUser.role, "lecturer");
-    assert.equal(createdUser.matNumber, null);
-    assert.equal(createdUser.phone, null);
-    assert.equal(createdUser.passwordLoginEnabled, false);
+    assert.equal(response.statusCode, 403);
+    assert.match(response.body.message, /provisioned by the university/i);
+});
+
+const createArgon2idHash = async (password) => {
+    const salt = randomBytes(16);
+    const parameters = { memory: 8192, passes: 1, parallelism: 1, tagLength: 32 };
+    const tag = await new Promise((resolve, reject) => {
+        argon2("argon2id", {
+            message: Buffer.from(password, "utf8"),
+            nonce: salt,
+            ...parameters
+        }, (error, derivedKey) => {
+            if (error) reject(error);
+            else resolve(derivedKey);
+        });
+    });
+    const encode = (value) => value.toString("base64").replace(/=+$/, "");
+    return `$argon2id$v=19$m=${parameters.memory},t=${parameters.passes},p=${parameters.parallelism}$${encode(salt)}$${encode(tag)}`;
+};
+
+test("Argon2id password login upgrades the verified hash to Bcrypt", async () => {
+    const password = "legacy-argon-password";
+    const originalHash = await createArgon2idHash(password);
+    const user = {
+        id: 27,
+        tokenVersion: 0,
+        fullName: "Legacy Lecturer",
+        email: "legacy@example.edu",
+        role: "lecturer",
+        passwordLoginEnabled: true,
+        password: originalHash,
+        savedFields: null,
+        async save(options) {
+            this.savedFields = options.fields;
+        },
+        toJSON() {
+            return { ...this };
+        }
+    };
+    User.findOne = async ({ where }) => {
+        assert.deepEqual(where, { email: user.email });
+        return user;
+    };
+
+    const response = createResponse();
+    await authController.login({
+        body: { email: user.email, password }
+    }, response);
+
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(user.savedFields, ["password"]);
+    assert.notEqual(user.password, originalHash);
+    assert.equal(await bcrypt.compare(password, user.password), true);
+    assert.equal(response.body.user.password, undefined);
     assert.ok(response.body.token);
 });
 

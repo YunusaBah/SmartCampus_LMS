@@ -156,7 +156,7 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
             <header className="register-heading">
                 <p className="register-eyebrow">THE UNIVERSITY OF THE GAMBIA</p>
                 <h2 id="register-title">Create your account</h2>
-                <p>Choose your account type and how you want to sign up.</p>
+                <p>Create your student account using your email and password or Google.</p>
             </header>
 
             {error && <p className="register-error" role="alert">{error}</p>}
@@ -164,24 +164,13 @@ const Register = ({ embedded = false, onClose, onSuccess, onLogin }) => {
 
             <label className="register-account-notice">
                 Account type
-                <select
-                    name="role"
-                    value={formData.role}
-                    onChange={(event) => {
-                        setFormData((current) => ({
-                            ...current,
-                            role: event.target.value,
-                            matNumber: "",
-                            phone: ""
-                        }));
-                        setError("");
-                        setMessage("");
-                    }}
-                >
+                <select name="role" value="student" disabled>
                     <option value="student">Student</option>
-                    <option value="lecturer">Lecturer</option>
                 </select>
             </label>
+            <p className="register-field-hint">
+                Lecturer accounts are provisioned by the University. Contact the SmartCampus support team to request lecturer access.
+            </p>
 
             {formData.role && !registrationMethod && (
                 <div className="register-method-picker">

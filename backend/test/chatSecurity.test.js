@@ -43,3 +43,29 @@ test("production requires the Supabase Auth schema for chat security", async () 
         /Supabase auth schema is required to enable chat row-level security/
     );
 });
+
+
+test("production chat security keeps policy helpers private and the public Data API read-only", async () => {
+    process.env.NODE_ENV = "production";
+    let sqlExecuted = "";
+    let firstCall = true;
+    sequelize.query = async (sql) => {
+        if (firstCall) {
+            firstCall = false;
+            return [{ authSchema: true }];
+        }
+        sqlExecuted = sql;
+        return [];
+    };
+
+    await configureChatSecurity();
+
+    assert.match(sqlExecuted, /CREATE SCHEMA IF NOT EXISTS private/);
+    assert.match(sqlExecuted, /CREATE OR REPLACE FUNCTION private\.smartcampus_chat_can_access_course/);
+    assert.match(sqlExecuted, /SET search_path = ''/);
+    assert.match(sqlExecuted, /REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public/);
+    assert.match(sqlExecuted, /GRANT SELECT ON TABLE public\."ChatMessages" TO authenticated/);
+    assert.match(sqlExecuted, /DROP FUNCTION IF EXISTS public\.smartcampus_chat_can_access_course/);
+    assert.match(sqlExecuted, /REVOKE ALL ON FUNCTION public\.rls_auto_enable\(\)/);
+    assert.match(sqlExecuted, /private\.smartcampus_chat_can_view_profile\(\(SELECT auth\.uid\(\)\), id\)/);
+});

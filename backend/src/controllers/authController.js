@@ -2,6 +2,7 @@ const { Op } = require("sequelize");
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
+const { isArgon2Hash, verifyArgon2idPassword } = require("../utils/passwordHash");
 const User = require("../models/User");
 const sanitizeUser = require("../utils/sanitizeUser");
 const { isValidJwtSecret } = require("../utils/authConfiguration");
@@ -164,10 +165,15 @@ const verifyGoogleCredential = async (credential) => {
 exports.register = async (req, res) => {
     try {
         const { fullName, email, password, confirmPassword, role, matNumber, phone } = req.body;
+        if (role === "lecturer") {
+            return res.status(403).json({
+                message: "Lecturer accounts must be provisioned by the University. Contact the SmartCampus support team."
+            });
+        }
+
         const normalizedName = normalizeName(fullName);
         const normalizedEmail = normalizeEmail(email);
-        if (!normalizedName || !normalizedEmail || !validatePassword(password) ||
-            !["student", "lecturer"].includes(role)) {
+        if (!normalizedName || !normalizedEmail || !validatePassword(password) || role !== "student") {
             return res.status(400).json({
                 message: "Enter a valid name, email, password (at least 6 characters), and account type."
             });
@@ -218,7 +224,12 @@ exports.register = async (req, res) => {
 exports.googleRegister = async (req, res) => {
     try {
         const { credential, role, fullName, matNumber, phone } = req.body;
-        if (!["student", "lecturer"].includes(role)) {
+        if (role === "lecturer") {
+            return res.status(403).json({
+                message: "Lecturer accounts must be provisioned by the University. Contact the SmartCampus support team."
+            });
+        }
+        if (role !== "student") {
             return res.status(400).json({ message: "Choose a valid account type" });
         }
 
@@ -337,10 +348,21 @@ exports.login = async (req, res) => {
             return res.status(401).json({ message: "This account signs in with Google. Continue with Google to log in." });
         }
 
-        const isMatch = await bcrypt.compare(password, user.password);
+        const argon2Password = isArgon2Hash(user.password);
+        const isMatch = argon2Password
+            ? await verifyArgon2idPassword(password, user.password)
+            : await bcrypt.compare(password, user.password);
 
         if (!isMatch) {
             return res.status(401).json({ message: "Invalid email or password" });
+        }
+
+        // Upgrade legacy Argon2id hashes to the current Bcrypt format after a
+        // successful login. This avoids changing a user's password or forcing
+        // a reset while ensuring all subsequent logins use one supported format.
+        if (argon2Password) {
+            user.password = await bcrypt.hash(password, 10);
+            await user.save({ fields: ["password"] });
         }
 
         return issueSession(user, res);

@@ -58,7 +58,28 @@ bucket private; the browser receives only the short-lived upload grant, never
 the service-role key. Existing local-disk files are not moved automatically;
 upload them again through the application if they still need to be retained.
 
-## 3. Import the repository into Vercel
+## 3. Security and account provisioning
+
+- Public registration creates student accounts only. Lecturer accounts must be
+  provisioned by the University through a trusted operator workflow; existing
+  lecturer accounts can continue to sign in.
+- The backend requires Node.js 24.7 or newer. The Vercel project should use
+  Node.js 26.x. Legacy Argon2id password hashes are verified with Node's native
+  Argon2 implementation and upgraded to Bcrypt after a successful login.
+- The production preparation script moves chat RLS helper functions into the
+  non-exposed `private` schema, restricts their execution to authenticated
+  users, and limits direct Data API access to read-only chat profile/message
+  queries required by Realtime. LMS application data continues to be accessed
+  through the authenticated Express API.
+- The same preparation step adds missing foreign-key indexes, creates the
+  storage-quota reservation table, and restricts the private
+  `smartcampus-files` bucket to the documented MIME types and 20 MB maximum.
+- Back up the production database before running any production schema or
+  permission migrations. Verify the migration and test student, lecturer,
+  chat, upload, and download flows before releasing the matching application
+  revision.
+
+## 4. Import the repository into Vercel
 
 1. Push the repository to GitHub if it is not already there.
 2. In the [Vercel dashboard](https://vercel.com/dashboard), select **Add New →
@@ -69,7 +90,7 @@ upload them again through the application if they still need to be retained.
    service from its own directory; the frontend publishes its `dist` output.
 5. Add the environment variables below before deploying, then select **Deploy**.
 
-## 4. Configure project environment variables
+## 5. Configure project environment variables
 
 Add these in **Project → Settings → Environment Variables**. Use **Production**
 for the live site; add **Preview** too if preview deployments should connect to
