@@ -2,6 +2,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { createClient } = require("@supabase/supabase-js");
 const validateMaterialFile = require("./validateMaterialFile");
+const StorageUploadReservation = require("../models/StorageUploadReservation");
 
 const bucketName = process.env.SUPABASE_STORAGE_BUCKET || "smartcampus-files";
 const maxMaterialSize = 20 * 1024 * 1024;
@@ -41,10 +42,10 @@ const getClient = () => {
 
 const validateStorageKey = (key, userId) => typeof key === "string" &&
     key.length <= 160 &&
-    key.startsWith(`${userId}/`) &&
+    key.startsWith(\`\${userId}/\`) &&
     /^[1-9]\d*\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[a-z0-9]{1,10}$/i.test(key);
 
-const signUpload = async ({ userId, fileName, fileSize, purpose, mediaType }) => {
+const signUpload = async ({ userId, fileName, fileSize, purpose, mediaType, beforeSign, onSignFailure }) => {
     if (typeof fileName !== "string" || fileName.length > 255 || /[\u0000-\u001f\u007f]/.test(fileName)) {
         throw new Error("Choose a valid file name.");
     }
@@ -73,15 +74,29 @@ const signUpload = async ({ userId, fileName, fileSize, purpose, mediaType }) =>
     }
 
     if (!Number.isSafeInteger(fileSize) || fileSize < 1 || fileSize > maxSize) {
-        throw new Error(`Files must be ${maxSize / 1024 / 1024} MB or smaller.`);
+        throw new Error(\`Files must be \${maxSize / 1024 / 1024} MB or smaller.\`);
     }
 
-    const key = `${userId}/${crypto.randomUUID()}${storageExtension}`;
-    const { data, error } = await getClient().storage.from(bucketName)
-        .createSignedUploadUrl(key, { upsert: false });
-    if (error) throw new Error(`Unable to prepare file upload: ${error.message}`);
+    const key = \`\${userId}/\${crypto.randomUUID()}\${storageExtension}\`;
+    if (beforeSign) {
+        await beforeSign({ userId, objectKey: key, sizeBytes: fileSize, purpose });
+    }
 
-    return { bucket: bucketName, key, token: data.token, contentType };
+    try {
+        const { data, error } = await getClient().storage.from(bucketName)
+            .createSignedUploadUrl(key, { upsert: false });
+        if (error) throw new Error(\`Unable to prepare file upload: \${error.message}\`);
+        return { bucket: bucketName, key, token: data.token, contentType };
+    } catch (error) {
+        if (onSignFailure) {
+            try {
+                await onSignFailure({ objectKey: key });
+            } catch (cleanupError) {
+                console.error("Failed to release unused storage reservation:", cleanupError.message);
+            }
+        }
+        throw error;
+    }
 };
 
 const mediaTypeFromName = (fileName, mediaType) => {
@@ -96,7 +111,7 @@ const mediaTypeFromName = (fileName, mediaType) => {
 
 const download = async (key) => {
     const { data, error } = await getClient().storage.from(bucketName).download(key);
-    if (error) throw new Error(`Unable to read stored file: ${error.message}`);
+    if (error) throw new Error(\`Unable to read stored file: \${error.message}\`);
     const buffer = Buffer.from(await data.arrayBuffer());
     if (!buffer.length || buffer.length > maxMaterialSize) {
         throw new Error("Stored file is empty or exceeds the 20 MB limit.");
@@ -117,8 +132,12 @@ const resolveMaterialUpload = async (body, userId) => {
             throw new Error("The uploaded file size did not match the selected file.");
         }
         const metadata = await validateMaterialFile({ buffer, originalname: fileName, size: buffer.length });
+        await StorageUploadReservation.update(
+            { status: "active", expiresAt: null, sizeBytes: metadata.fileSize },
+            { where: { userId, objectKey: key, status: "pending" } }
+        );
         return {
-            fileUrl: `/uploads/${key}`,
+            fileUrl: \`/uploads/\${key}\`,
             fileName,
             mimeType: metadata.mimeType,
             fileSize: metadata.fileSize,
@@ -153,13 +172,14 @@ const resolveChatUpload = async (body, userId) => {
 const signedDownloadUrl = async (key, fileName) => {
     const { data, error } = await getClient().storage.from(bucketName)
         .createSignedUrl(key, 60, { download: path.basename(fileName || "download") });
-    if (error) throw new Error(`Unable to create a file download link: ${error.message}`);
+    if (error) throw new Error(\`Unable to create a file download link: \${error.message}\`);
     return data.signedUrl;
 };
 
 const remove = async (key) => {
     const { error } = await getClient().storage.from(bucketName).remove([key]);
-    if (error) throw new Error(`Unable to remove stored file: ${error.message}`);
+    if (error) throw new Error(\`Unable to remove stored file: \${error.message}\`);
+    await StorageUploadReservation.destroy({ where: { objectKey: key } });
 };
 
 module.exports = {
