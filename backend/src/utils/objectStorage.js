@@ -40,6 +40,26 @@ const getClient = () => {
     return client;
 };
 
+const findValidUploadReservation = async ({ userId, key, actualSize, fileLabel }) => {
+    const reservation = await StorageUploadReservation.findOne({
+        where: { userId, objectKey: key, status: "pending" },
+        attributes: ["sizeBytes", "expiresAt"]
+    });
+    const expiry = reservation?.expiresAt ? new Date(reservation.expiresAt).getTime() : 0;
+    if (!reservation || !Number.isFinite(expiry) || expiry <= Date.now()) {
+        const error = new Error(`The uploaded ${fileLabel} does not have a valid, unexpired storage reservation.`);
+        error.code = "STORAGE_UPLOAD_RESERVATION_INVALID";
+        throw error;
+    }
+    if (!Number.isSafeInteger(Number(reservation.sizeBytes)) ||
+        Number(reservation.sizeBytes) !== actualSize) {
+        const error = new Error(`The uploaded ${fileLabel} size does not match the size reserved before upload.`);
+        error.code = "STORAGE_UPLOAD_SIZE_MISMATCH";
+        throw error;
+    }
+    return reservation;
+};
+
 const validateStorageKey = (key, userId) => typeof key === "string" &&
     key.length <= 160 &&
     key.startsWith(`${userId}/`) &&
@@ -131,11 +151,20 @@ const resolveMaterialUpload = async (body, userId) => {
         if (body.fileSize !== undefined && Number(body.fileSize) !== buffer.length) {
             throw new Error("The uploaded file size did not match the selected file.");
         }
+        await findValidUploadReservation({
+            userId,
+            key,
+            actualSize: buffer.length,
+            fileLabel: "file"
+        });
         const metadata = await validateMaterialFile({ buffer, originalname: fileName, size: buffer.length });
-        await StorageUploadReservation.update(
+        const [activated] = await StorageUploadReservation.update(
             { status: "active", expiresAt: null, sizeBytes: metadata.fileSize },
             { where: { userId, objectKey: key, status: "pending" } }
         );
+        if (!activated) {
+            throw new Error("The uploaded file reservation could not be confirmed.");
+        }
         return {
             fileUrl: `/uploads/${key}`,
             fileName,
@@ -165,6 +194,12 @@ const resolveChatUpload = async (body, userId) => {
         (body.fileSize !== undefined && Number(body.fileSize) !== buffer.length)) {
         throw new Error("The chat attachment exceeds the 5 MB limit or has an invalid size.");
     }
+    await findValidUploadReservation({
+        userId,
+        key,
+        actualSize: buffer.length,
+        fileLabel: "attachment"
+    });
     const type = mediaTypeFromName(fileName, body.mediaType) || "application/octet-stream";
     return { key, file: { buffer, originalname: fileName, mimetype: type, size: buffer.length } };
 };
