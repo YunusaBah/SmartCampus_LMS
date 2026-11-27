@@ -445,6 +445,7 @@ module.exports = async () => {
             await applyAssignmentWorkTypeMigration(queryInterface);
             await applyLessonPrivateNotesMigration(queryInterface);
             await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+            await applyStorageQuotaMigration(queryInterface);
             await ensureIdentityIndexes();
             return;
         }
