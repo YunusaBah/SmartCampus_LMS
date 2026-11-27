@@ -39,6 +39,8 @@ const announcementCommentsMigrationName = "20261102_03_announcement_comments";
 const lessonReadingProgressMigrationName = "20261102_04_lesson_reading_progress";
 const assignmentWorkTypeMigrationName = "20261103_01_assignment_work_type";
 const storageQuotaMigrationName = "20261127_01_storage_quota_reservations";
+const foreignKeyIndexMigrationName = "20261127_02_foreign_key_indexes";
+const storageBucketMimeMigrationName = "20261127_03_storage_bucket_mime_allowlist";
 const lessonPrivateNotesMigrationName = "20261103_02_lesson_private_notes";
 const chatMessageDeliveryAndReactionsMigrationName = "20261103_03_chat_message_delivery_reactions";
 const migrationNames = [
@@ -425,6 +427,136 @@ const applyStorageQuotaMigration = async (queryInterface) => {
     }
 };
 
+
+const applyForeignKeyIndexMigration = async (queryInterface) => {
+    const applied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: foreignKeyIndexMigrationName },
+        limit: 1
+    });
+    if (applied.length) return;
+
+    const indexDefinitions = [
+        ["Announcements", ["createdById"]],
+        ["CalendarEvents", ["createdById"]],
+        ["Certificates", ["courseId"]],
+        ["ChatHiddenMessages", ["messageId"]],
+        ["ChatMessageReactions", ["profileId"]],
+        ["ChatMessages", ["receiverProfileId"]],
+        ["ChatMessages", ["replyTo"]],
+        ["ChatProfilePermissions", ["viewerProfileId"]],
+        ["ChatSavedMessages", ["messageId"]],
+        ["Courses", ["departmentId"]],
+        ["LessonNotes", ["userId"]],
+        ["LessonProgresses", ["lessonId"]],
+        ["Lessons", ["courseId"]],
+        ["Lessons", ["moduleId"]],
+        ["Lessons", ["uploadedById"]],
+        ["Messages", ["courseId"]],
+        ["Messages", ["recipientId"]],
+        ["Messages", ["senderId"]],
+        ["Modules", ["courseId"]],
+        ["NotificationDeliveries", ["deviceId"]],
+        ["QuizAssessments", ["courseId"]],
+        ["QuizAttempts", ["assessmentId"]],
+        ["Quizzes", ["assessmentId"]],
+        ["Quizzes", ["courseId"]]
+    ];
+
+    for (const [tableName, columns] of indexDefinitions) {
+        const tables = await getTables(queryInterface);
+        if (!hasTable(tables, tableName)) {
+            throw new Error(`Cannot add the foreign-key index: table ${tableName} does not exist.`);
+        }
+
+        const indexes = await queryInterface.showIndex(tableName);
+        const hasCoveringIndex = indexes.some((index) => {
+            const fields = (index.fields || []).map((field) => (
+                typeof field === "string" ? field : field.attribute || field.name || field.field
+            ));
+            return columns.every((column, position) =>
+                String(fields[position] || "").toLowerCase() === column.toLowerCase()
+            );
+        });
+        if (hasCoveringIndex) continue;
+
+        const suffix = columns.map((column) => column.toLowerCase()).join("_");
+        const indexName = `fk_${tableName.toLowerCase()}_${suffix}`.slice(0, 60);
+        await queryInterface.addIndex(tableName, columns, { name: indexName });
+    }
+
+    await queryInterface.bulkInsert("SchemaMigrations", [{
+        name: foreignKeyIndexMigrationName,
+        appliedAt: new Date()
+    }]);
+};
+
+const applyStorageBucketMimeAllowlistMigration = async () => {
+    const applied = await sequelize.query(
+        'SELECT "name" FROM public."SchemaMigrations" WHERE "name" = :name LIMIT 1',
+        { replacements: { name: storageBucketMimeMigrationName }, type: QueryTypes.SELECT }
+    );
+    if (applied.length) return;
+
+    const [bucket] = await sequelize.query(
+        'SELECT id, public, file_size_limit FROM storage.buckets WHERE id = :bucketName LIMIT 1',
+        { replacements: { bucketName: "smartcampus-files" }, type: QueryTypes.SELECT }
+    );
+    if (!bucket) {
+        throw new Error("The private smartcampus-files Supabase Storage bucket does not exist.");
+    }
+    if (bucket.public) {
+        throw new Error("The smartcampus-files bucket is public. Review its access before applying the private bucket migration.");
+    }
+
+    const allowedMimeTypes = [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "text/plain",
+        "text/csv",
+        "application/zip",
+        "application/octet-stream",
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "audio/webm",
+        "audio/mp4",
+        "audio/ogg",
+        "audio/mpeg",
+        "audio/wav"
+    ];
+    const mimeArray = allowedMimeTypes.map((mimeType) => `'${mimeType}'`).join(", ");
+    await sequelize.query(`
+        UPDATE storage.buckets
+        SET file_size_limit = 20971520,
+            allowed_mime_types = ARRAY[${mimeArray}]::text[]
+        WHERE id = 'smartcampus-files'
+          AND public = false
+    `);
+
+    const [updatedBucket] = await sequelize.query(
+        'SELECT public, file_size_limit, allowed_mime_types FROM storage.buckets WHERE id = :bucketName',
+        { replacements: { bucketName: "smartcampus-files" }, type: QueryTypes.SELECT }
+    );
+    if (!updatedBucket || updatedBucket.public ||
+        Number(updatedBucket.file_size_limit) !== 20971520 ||
+        !Array.isArray(updatedBucket.allowed_mime_types) ||
+        updatedBucket.allowed_mime_types.length !== allowedMimeTypes.length ||
+        allowedMimeTypes.some((mimeType) => !updatedBucket.allowed_mime_types.includes(mimeType))) {
+        throw new Error("Supabase Storage bucket restrictions could not be verified.");
+    }
+
+    await sequelize.query(
+        'INSERT INTO public."SchemaMigrations" ("name", "appliedAt") VALUES (:name, NOW())',
+        { replacements: { name: storageBucketMimeMigrationName } }
+    );
+};
+
 module.exports = async () => {
     const queryInterface = sequelize.getQueryInterface();
     const quote = (identifier) => queryInterface.quoteIdentifier(identifier);
@@ -448,6 +580,8 @@ module.exports = async () => {
             await applyLessonPrivateNotesMigration(queryInterface);
             await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
             await applyStorageQuotaMigration(queryInterface);
+            await applyForeignKeyIndexMigration(queryInterface);
+            await applyStorageBucketMimeAllowlistMigration();
             await ensureIdentityIndexes();
             return;
         }
@@ -459,6 +593,8 @@ module.exports = async () => {
             await applyLessonPrivateNotesMigration(queryInterface);
             await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
             await applyStorageQuotaMigration(queryInterface);
+            await applyForeignKeyIndexMigration(queryInterface);
+            await applyStorageBucketMimeAllowlistMigration();
             await ensureIdentityIndexes();
             return;
         }
@@ -1571,6 +1707,8 @@ module.exports = async () => {
     await applyLessonPrivateNotesMigration(queryInterface);
     await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
     await applyStorageQuotaMigration(queryInterface);
+    await applyForeignKeyIndexMigration(queryInterface);
+    await applyStorageBucketMimeAllowlistMigration();
     await ensureIdentityIndexes();
 };
 
