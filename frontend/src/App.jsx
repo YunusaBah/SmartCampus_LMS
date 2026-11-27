@@ -161,6 +161,7 @@ function App() {
                             </RoleRoute>
                         } />
                         <Route path="settings" element={<Settings theme={theme} setTheme={setTheme} />} />
+                        <Route path="settings/storage" element={<Settings theme={theme} setTheme={setTheme} />} />
                         <Route path="help-feedback" element={
                             <RoleRoute roles={["student", "lecturer"]}>
                                 <HelpFeedback />
