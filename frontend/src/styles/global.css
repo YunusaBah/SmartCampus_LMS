@@ -15274,3 +15274,189 @@ p.course-manage-page-heading .course-created-date {
     text-align: center;
     white-space: nowrap;
 }
+
+
+.storage-usage-panel {
+    display: grid;
+    gap: 18px;
+    width: 100%;
+    color: var(--theme-text);
+}
+
+.storage-usage-heading {
+    display: flex;
+    align-items: center;
+    gap: 13px;
+}
+
+.storage-usage-heading h2,
+.storage-usage-user h3 {
+    margin: 0;
+    color: var(--theme-text);
+    font-size: 1.05rem;
+}
+
+.storage-usage-heading p,
+.storage-usage-user span {
+    margin: 4px 0 0;
+    color: var(--theme-muted);
+    font-size: 0.88rem;
+}
+
+.storage-usage-icon {
+    display: grid;
+    flex: 0 0 42px;
+    place-items: center;
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+    background: var(--theme-panel-raised);
+    color: var(--theme-accent);
+    font-size: 1.1rem;
+}
+
+.storage-refresh-button {
+    margin-left: auto;
+    white-space: nowrap;
+}
+
+.storage-usage-main {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.storage-usage-main > div {
+    display: grid;
+    gap: 4px;
+}
+
+.storage-usage-main span,
+.storage-usage-stats span {
+    color: var(--theme-muted);
+    font-size: 0.86rem;
+}
+
+.storage-usage-main strong {
+    color: var(--theme-text);
+    font-size: 1.4rem;
+}
+
+.storage-usage-main small {
+    color: var(--theme-muted);
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+.storage-usage-main .storage-usage-percent {
+    color: var(--theme-accent);
+    font-size: 1.05rem;
+}
+
+.storage-usage-progress {
+    display: block;
+    width: 100%;
+    height: 13px;
+    overflow: hidden;
+    border: 0;
+    border-radius: 999px;
+    background: var(--theme-panel-raised);
+    accent-color: var(--theme-accent);
+}
+
+.storage-usage-progress::-webkit-progress-bar {
+    border-radius: 999px;
+    background: var(--theme-panel-raised);
+}
+
+.storage-usage-progress::-webkit-progress-value {
+    border-radius: 999px;
+    background: var(--theme-accent);
+}
+
+.storage-usage-progress::-moz-progress-bar {
+    border-radius: 999px;
+    background: var(--theme-accent);
+}
+
+.storage-usage-stats {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+}
+
+.storage-usage-stats > div {
+    display: grid;
+    gap: 5px;
+    padding: 12px;
+    border: 1px solid var(--theme-border);
+    border-radius: 10px;
+    background: var(--theme-panel-raised);
+}
+
+.storage-usage-stats strong {
+    color: var(--theme-text);
+    font-size: 0.98rem;
+}
+
+.storage-usage-user {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px 13px;
+    padding: 14px;
+    border: 1px solid var(--theme-border);
+    border-radius: 10px;
+}
+
+.storage-usage-user h3 {
+    margin-right: auto;
+    font-size: 0.94rem;
+}
+
+.storage-usage-user > strong {
+    color: var(--theme-text);
+}
+
+.storage-usage-notice {
+    margin: 0;
+    padding: 11px 13px;
+    border-radius: 9px;
+    background: var(--theme-panel-raised);
+    font-size: 0.9rem;
+}
+
+.storage-usage-notice.success {
+    color: #35c58a;
+}
+
+.storage-usage-notice.warning {
+    color: #e6b85c;
+}
+
+.storage-usage-notice.error {
+    color: #ee8585;
+}
+
+.storage-usage-footnote {
+    margin: 0;
+    color: var(--theme-muted);
+    font-size: 0.82rem;
+    line-height: 1.55;
+}
+
+@media (max-width: 600px) {
+    .storage-usage-heading {
+        align-items: flex-start;
+        flex-wrap: wrap;
+    }
+
+    .storage-refresh-button {
+        margin-left: 55px;
+    }
+
+    .storage-usage-stats {
+        grid-template-columns: 1fr;
+    }
+}

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { FaArrowLeft, FaBookOpen, FaLifeRing, FaMoon, FaSearch, FaShieldAlt, FaSlidersH, FaSun, FaUserCircle } from "react-icons/fa";
+import { FaArrowLeft, FaBookOpen, FaCloud, FaLifeRing, FaMoon, FaSearch, FaShieldAlt, FaSlidersH, FaSun, FaUserCircle } from "react-icons/fa";
 import API from "../services/api";
 import { useAuth } from "../hooks/useAuth";
 import useOfflineRefresh from "../hooks/useOfflineRefresh";
 import { profilePictureStorageKey, readProfilePicture } from "../utils/profilePicture";
 import ShareAppButton from "../components/ShareAppButton";
+import StorageUsagePanel from "../components/StorageUsagePanel";
 import {
     defaultPageOptions,
     defaultPageStorageKey,
@@ -194,6 +195,7 @@ const Settings = ({ theme, setTheme }) => {
         settingsSubpage === "password" &&
         user?.passwordLoginEnabled !== false;
     const showPreferences = settingsPage === "preferences";
+    const showStorageSettings = settingsPage === "storage";
     const courseSettingsRoute = settingsPage === "courses";
     const loadingCourses = courseSettingsRoute && !coursesLoaded;
     const courseSettingsSection = settingsSubpage;
@@ -231,6 +233,13 @@ const Settings = ({ theme, setTheme }) => {
             keywords: "password",
             Icon: FaShieldAlt
         }] : []),
+        {
+            to: "/settings/storage",
+            title: "Storage usage",
+            description: "Monitor shared file capacity and your uploads.",
+            keywords: "storage files uploads capacity free space",
+            Icon: FaCloud
+        },
         {
             to: "/settings/preferences",
             title: "Preferences",
@@ -279,7 +288,8 @@ const Settings = ({ theme, setTheme }) => {
         courses: "Course settings",
         profile: "Profile information",
         security: "Security",
-        preferences: "Appearance & accessibility"
+        preferences: "Appearance & accessibility",
+        storage: "Storage & uploads"
     };
     const settingsSubpageTitles = {
         "courses/name": "Course name",
@@ -321,7 +331,8 @@ const Settings = ({ theme, setTheme }) => {
                 ...(user?.role === "student" ? ["student-id", "phone"] : [])
             ],
             security: ["", "password"],
-            preferences: ["", "appearance", "text-size", "motion", "home-page", "notifications"]
+            preferences: ["", "appearance", "text-size", "motion", "home-page", "notifications"],
+            storage: [""]
         };
         if (
             (!isSettingsHome && (!validSubpages[settingsPage]?.includes(settingsSubpage) ||
@@ -765,6 +776,10 @@ const Settings = ({ theme, setTheme }) => {
                         </button>
                     </div>
                 </form>
+            </section>}
+
+            {showStorageSettings && <section className="settings-section">
+                <StorageUsagePanel />
             </section>}
 
             {showPreferences && appearancePage && <section className="settings-section">

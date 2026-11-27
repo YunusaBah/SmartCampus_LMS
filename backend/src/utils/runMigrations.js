@@ -38,6 +38,7 @@ const submissionReadMigrationName = "20261102_02_submission_read_tracking";
 const announcementCommentsMigrationName = "20261102_03_announcement_comments";
 const lessonReadingProgressMigrationName = "20261102_04_lesson_reading_progress";
 const assignmentWorkTypeMigrationName = "20261103_01_assignment_work_type";
+const storageQuotaMigrationName = "20261127_01_storage_quota_reservations";
 const lessonPrivateNotesMigrationName = "20261103_02_lesson_private_notes";
 const chatMessageDeliveryAndReactionsMigrationName = "20261103_03_chat_message_delivery_reactions";
 const migrationNames = [
@@ -77,7 +78,8 @@ const migrationNames = [
     submissionReadMigrationName,
     announcementCommentsMigrationName,
     lessonReadingProgressMigrationName,
-    assignmentWorkTypeMigrationName
+    assignmentWorkTypeMigrationName,
+    storageQuotaMigrationName
 ];
 const additions = {
     Users: {
@@ -358,6 +360,71 @@ const ensureIdentityIndexes = async () => {
     }
 };
 
+
+const applyStorageQuotaMigration = async (queryInterface) => {
+    let tables = await getTables(queryInterface);
+    if (!hasTable(tables, "StorageUploadReservations")) {
+        await queryInterface.createTable("StorageUploadReservations", {
+            id: { type: DataTypes.INTEGER, autoIncrement: true, primaryKey: true, allowNull: false },
+            userId: { type: DataTypes.INTEGER, allowNull: false },
+            objectKey: { type: DataTypes.STRING(180), allowNull: false },
+            sizeBytes: { type: DataTypes.BIGINT, allowNull: false },
+            reservedBytes: { type: DataTypes.BIGINT, allowNull: false },
+            purpose: { type: DataTypes.STRING(32), allowNull: false },
+            status: { type: DataTypes.STRING(16), allowNull: false, defaultValue: "pending" },
+            expiresAt: { type: DataTypes.DATE, allowNull: true },
+            downloadCount: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
+            lastDownloadedAt: { type: DataTypes.DATE, allowNull: true },
+            createdAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW },
+            updatedAt: { type: DataTypes.DATE, allowNull: false, defaultValue: DataTypes.NOW }
+        });
+    }
+
+    tables = await getTables(queryInterface);
+    if (hasTable(tables, "StorageUploadReservations")) {
+        const columns = await queryInterface.describeTable("StorageUploadReservations");
+        if (!Object.prototype.hasOwnProperty.call(columns, "reservedBytes")) {
+            await queryInterface.addColumn("StorageUploadReservations", "reservedBytes", {
+                type: DataTypes.BIGINT,
+                allowNull: false,
+                defaultValue: 20 * 1024 * 1024
+            });
+        }
+    }
+
+    tables = await getTables(queryInterface);
+    if (hasTable(tables, "StorageUploadReservations")) {
+        const indexes = await queryInterface.showIndex("StorageUploadReservations");
+        if (!indexes.some((index) => index.name === "storage_upload_key_unique")) {
+            await queryInterface.addIndex("StorageUploadReservations", ["objectKey"], {
+                unique: true,
+                name: "storage_upload_key_unique"
+            });
+        }
+        if (!indexes.some((index) => index.name === "storage_upload_status_expiry")) {
+            await queryInterface.addIndex("StorageUploadReservations", ["status", "expiresAt"], {
+                name: "storage_upload_status_expiry"
+            });
+        }
+        if (!indexes.some((index) => index.name === "storage_upload_user_created")) {
+            await queryInterface.addIndex("StorageUploadReservations", ["userId", "createdAt"], {
+                name: "storage_upload_user_created"
+            });
+        }
+    }
+
+    const applied = await queryInterface.select(null, "SchemaMigrations", {
+        where: { name: storageQuotaMigrationName },
+        limit: 1
+    });
+    if (!applied.length) {
+        await queryInterface.bulkInsert("SchemaMigrations", [{
+            name: storageQuotaMigrationName,
+            appliedAt: new Date()
+        }]);
+    }
+};
+
 module.exports = async () => {
     const queryInterface = sequelize.getQueryInterface();
     const quote = (identifier) => queryInterface.quoteIdentifier(identifier);
@@ -380,6 +447,7 @@ module.exports = async () => {
             await applyAssignmentWorkTypeMigration(queryInterface);
             await applyLessonPrivateNotesMigration(queryInterface);
             await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+            await applyStorageQuotaMigration(queryInterface);
             await ensureIdentityIndexes();
             return;
         }
@@ -390,6 +458,7 @@ module.exports = async () => {
             await applyAssignmentWorkTypeMigration(queryInterface);
             await applyLessonPrivateNotesMigration(queryInterface);
             await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+            await applyStorageQuotaMigration(queryInterface);
             await ensureIdentityIndexes();
             return;
         }
@@ -1501,6 +1570,7 @@ module.exports = async () => {
     await applyAssignmentWorkTypeMigration(queryInterface);
     await applyLessonPrivateNotesMigration(queryInterface);
     await applyChatMessageDeliveryAndReactionsMigration(queryInterface);
+    await applyStorageQuotaMigration(queryInterface);
     await ensureIdentityIndexes();
 };
 

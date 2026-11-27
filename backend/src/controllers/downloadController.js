@@ -14,6 +14,7 @@ const { hasCoursePermission } = require("../utils/coursePermissions");
 
 const uploadsDirectory = require("../utils/uploadsDirectory");
 const objectStorage = require("../utils/objectStorage");
+const storageQuota = require("../utils/storageQuota");
 const { objectKeyFor } = require("../utils/storedUpload");
 
 const parseResourceId = (value) => {
@@ -136,7 +137,10 @@ const resolveLocalPath = async (fileUrl) => {
 
 const loadResourceContent = async (resource) => {
     const key = objectKeyFor(resource.fileUrl);
-    if (key) return { ...resource, buffer: await objectStorage.download(key) };
+    if (key) {
+        await storageQuota.recordStorageDownload(key);
+        return { ...resource, buffer: await objectStorage.download(key) };
+    }
     const filePath = await resolveLocalPath(resource.fileUrl);
     return filePath ? { ...resource, filePath } : null;
 };
@@ -148,6 +152,7 @@ exports.download = async (req, res, next) => {
     res.set("Cache-Control", "private, no-store");
     const key = objectKeyFor(resource.fileUrl);
     if (key) {
+        await storageQuota.recordStorageDownload(key);
         const signedUrl = await objectStorage.signedDownloadUrl(key, resource.downloadName);
         return res.redirect(302, signedUrl);
     }

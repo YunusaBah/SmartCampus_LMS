@@ -2,6 +2,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { createClient } = require("@supabase/supabase-js");
 const validateMaterialFile = require("./validateMaterialFile");
+const StorageUploadReservation = require("../models/StorageUploadReservation");
 
 const bucketName = process.env.SUPABASE_STORAGE_BUCKET || "smartcampus-files";
 const maxMaterialSize = 20 * 1024 * 1024;
@@ -39,12 +40,32 @@ const getClient = () => {
     return client;
 };
 
+const findValidUploadReservation = async ({ userId, key, actualSize, fileLabel }) => {
+    const reservation = await StorageUploadReservation.findOne({
+        where: { userId, objectKey: key, status: "pending" },
+        attributes: ["sizeBytes", "expiresAt"]
+    });
+    const expiry = reservation?.expiresAt ? new Date(reservation.expiresAt).getTime() : 0;
+    if (!reservation || !Number.isFinite(expiry) || expiry <= Date.now()) {
+        const error = new Error(`The uploaded ${fileLabel} does not have a valid, unexpired storage reservation.`);
+        error.code = "STORAGE_UPLOAD_RESERVATION_INVALID";
+        throw error;
+    }
+    if (!Number.isSafeInteger(Number(reservation.sizeBytes)) ||
+        Number(reservation.sizeBytes) !== actualSize) {
+        const error = new Error(`The uploaded ${fileLabel} size does not match the size reserved before upload.`);
+        error.code = "STORAGE_UPLOAD_SIZE_MISMATCH";
+        throw error;
+    }
+    return reservation;
+};
+
 const validateStorageKey = (key, userId) => typeof key === "string" &&
     key.length <= 160 &&
     key.startsWith(`${userId}/`) &&
     /^[1-9]\d*\/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[a-z0-9]{1,10}$/i.test(key);
 
-const signUpload = async ({ userId, fileName, fileSize, purpose, mediaType }) => {
+const signUpload = async ({ userId, fileName, fileSize, purpose, mediaType, beforeSign, onSignFailure }) => {
     if (typeof fileName !== "string" || fileName.length > 255 || /[\u0000-\u001f\u007f]/.test(fileName)) {
         throw new Error("Choose a valid file name.");
     }
@@ -77,11 +98,25 @@ const signUpload = async ({ userId, fileName, fileSize, purpose, mediaType }) =>
     }
 
     const key = `${userId}/${crypto.randomUUID()}${storageExtension}`;
-    const { data, error } = await getClient().storage.from(bucketName)
-        .createSignedUploadUrl(key, { upsert: false });
-    if (error) throw new Error(`Unable to prepare file upload: ${error.message}`);
+    if (beforeSign) {
+        await beforeSign({ userId, objectKey: key, sizeBytes: fileSize, purpose });
+    }
 
-    return { bucket: bucketName, key, token: data.token, contentType };
+    try {
+        const { data, error } = await getClient().storage.from(bucketName)
+            .createSignedUploadUrl(key, { upsert: false });
+        if (error) throw new Error(`Unable to prepare file upload: ${error.message}`);
+        return { bucket: bucketName, key, token: data.token, contentType };
+    } catch (error) {
+        if (onSignFailure) {
+            try {
+                await onSignFailure({ objectKey: key });
+            } catch (cleanupError) {
+                console.error("Failed to release unused storage reservation:", cleanupError.message);
+            }
+        }
+        throw error;
+    }
 };
 
 const mediaTypeFromName = (fileName, mediaType) => {
@@ -116,7 +151,20 @@ const resolveMaterialUpload = async (body, userId) => {
         if (body.fileSize !== undefined && Number(body.fileSize) !== buffer.length) {
             throw new Error("The uploaded file size did not match the selected file.");
         }
+        await findValidUploadReservation({
+            userId,
+            key,
+            actualSize: buffer.length,
+            fileLabel: "file"
+        });
         const metadata = await validateMaterialFile({ buffer, originalname: fileName, size: buffer.length });
+        const [activated] = await StorageUploadReservation.update(
+            { status: "active", expiresAt: null, sizeBytes: metadata.fileSize, reservedBytes: metadata.fileSize },
+            { where: { userId, objectKey: key, status: "pending" } }
+        );
+        if (!activated) {
+            throw new Error("The uploaded file reservation could not be confirmed.");
+        }
         return {
             fileUrl: `/uploads/${key}`,
             fileName,
@@ -146,6 +194,12 @@ const resolveChatUpload = async (body, userId) => {
         (body.fileSize !== undefined && Number(body.fileSize) !== buffer.length)) {
         throw new Error("The chat attachment exceeds the 5 MB limit or has an invalid size.");
     }
+    await findValidUploadReservation({
+        userId,
+        key,
+        actualSize: buffer.length,
+        fileLabel: "attachment"
+    });
     const type = mediaTypeFromName(fileName, body.mediaType) || "application/octet-stream";
     return { key, file: { buffer, originalname: fileName, mimetype: type, size: buffer.length } };
 };
@@ -160,6 +214,7 @@ const signedDownloadUrl = async (key, fileName) => {
 const remove = async (key) => {
     const { error } = await getClient().storage.from(bucketName).remove([key]);
     if (error) throw new Error(`Unable to remove stored file: ${error.message}`);
+    await StorageUploadReservation.destroy({ where: { objectKey: key } });
 };
 
 module.exports = {

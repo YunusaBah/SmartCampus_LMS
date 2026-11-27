@@ -856,6 +856,9 @@ exports.sendMessage = async (req, res, next) => {
                 console.error("Failed to remove rejected chat attachment:", cleanupError.message);
             }
         }
+        if (["STORAGE_UPLOAD_RESERVATION_INVALID", "STORAGE_UPLOAD_SIZE_MISMATCH"].includes(error.code)) {
+            return res.status(400).json({ message: error.message });
+        }
         return next(error);
     }
 };
