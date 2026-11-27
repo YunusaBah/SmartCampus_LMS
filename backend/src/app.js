@@ -20,6 +20,7 @@ const feedbackRoutes = require("./Routes/feedbackRoutes");
 const chatRoutes = require("./Routes/chatRoutes");
 const reportRoutes = require("./Routes/reportRoutes");
 const uploadRoutes = require("./Routes/uploadRoutes");
+const storageRoutes = require("./Routes/storageRoutes");
 const { sequelize } = require("./config/db");
 
 const app = express();
@@ -102,6 +103,7 @@ app.use("/api/ai", aiRoutes);
 app.use("/api/feedback", feedbackRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/uploads", uploadRoutes);
+app.use("/api/storage", storageRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api", lmsRoutes);
 
