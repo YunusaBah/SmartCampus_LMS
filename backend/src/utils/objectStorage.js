@@ -159,7 +159,7 @@ const resolveMaterialUpload = async (body, userId) => {
         });
         const metadata = await validateMaterialFile({ buffer, originalname: fileName, size: buffer.length });
         const [activated] = await StorageUploadReservation.update(
-            { status: "active", expiresAt: null, sizeBytes: metadata.fileSize },
+            { status: "active", expiresAt: null, sizeBytes: metadata.fileSize, reservedBytes: metadata.fileSize },
             { where: { userId, objectKey: key, status: "pending" } }
         );
         if (!activated) {
