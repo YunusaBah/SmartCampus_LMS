@@ -31,14 +31,11 @@ feedback, chat, and other API data all use this PostgreSQL database. No
 duplicate Supabase REST routes are needed.
 
 Use `DB_SSL=true` and a small connection pool (`DB_POOL_MAX=2`) for serverless
-instances. The backend applies its additive migrations and creates missing
-tables at startup; do not manually create application tables or use
-`sequelize.sync({ alter: true })`. A database user with schema/table creation
-and migration privileges is required for the initial deployment.
-
-Vercel initializes the database on the first API invocation in each backend
-instance, then runs the existing migrations and Sequelize sync. Allow the first
-API request after a deploy to take longer than later requests.
+instances. The API does not run database migrations or schema changes during
+normal requests. Apply schema changes once as a controlled deployment step
+with `npm run migrate:deploy`; back up the production database first. A
+database user with the required schema/table privileges is needed for this
+step.
 
 ## 2. Configure private Supabase Storage
 
@@ -167,3 +164,45 @@ document extraction and chat media are also staged in Storage to bypass the
 Vercel request-size limit. The backend removes those temporary objects after
 processing. Course materials, assignment files, and submissions remain in
 Storage until their owning records are deleted.
+
+## 8. Supabase Free storage protection
+
+SmartCampus keeps Supabase Storage as its file provider. The application
+enforces an **800 MB project-wide safety ceiling** for objects in Supabase
+Storage, leaving a buffer below the Supabase Free plan's published 1 GB storage
+allowance. The ceiling is not a promise that the entire Supabase organisation
+will remain within its free allowance: other projects in the same organisation
+can also consume quota. Review the Supabase organisation's usage page regularly.
+
+The quota check reads object sizes across **all buckets in this Supabase
+project**, then adds reserved capacity for signed uploads that have not arrived
+in Storage yet. Upload capacity is reserved before a signed upload link is
+issued. Concurrent reservations are serialized in PostgreSQL to avoid two
+simultaneous uploads consuming the same remaining capacity. Uploads fail closed
+with a capacity error if the quota cannot be checked.
+
+The authenticated `GET /api/storage/usage` endpoint powers **Settings →
+Storage usage**. It shows project usage, pending upload reservations, remaining
+capacity, and the current user's files in the SmartCampus bucket. It also
+records downloads for files registered by the quota system.
+
+Pending signed uploads expire after 24 hours. SmartCampus removes expired
+staging objects when a user opens the storage-usage screen or requests another
+signed upload; cleanup is incremental and processes up to 10 expired uploads
+per request. This is request-triggered cleanup, not a separate always-running
+scheduled job.
+
+Before deploying this feature to an existing production database:
+
+1. Back up the Supabase PostgreSQL database.
+2. Run the controlled production migration from a trusted machine or CI
+   environment:
+   `cd backend && npm ci && npm run migrate:deploy`.
+3. Deploy the matching application revision.
+4. Sign in and open **Settings → Storage usage**. Confirm that it can read
+   project usage, then test a small upload and download with an authorised
+   account. Verify an unauthorised account is denied access.
+
+The `StorageUploadReservations` table is used for quota reservations and
+download counts. Keep the `smartcampus-files` bucket private and keep the
+Supabase service-role key backend-only.
